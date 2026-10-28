@@ -2,21 +2,30 @@ package vn.hoanguyen.quanlynhatro;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
+import android.content.ContentValues;
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
+import android.provider.MediaStore;
 import android.print.PrintAttributes;
 import android.print.PrintDocumentAdapter;
 import android.print.PrintManager;
 import android.util.Base64;
 import android.webkit.JavascriptInterface;
+import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -30,6 +39,19 @@ public class MainActivity extends AppCompatActivity {
 
     private WebView webView;
     private final ExecutorService printerExecutor = Executors.newSingleThreadExecutor();
+    private ValueCallback<Uri[]> filePathCallback;
+
+    // Mở trình chọn file của Android (dùng cho nút "Nhập file sao lưu")
+    private final ActivityResultLauncher<Intent> fileChooserLauncher =
+        registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
+            if (filePathCallback == null) return;
+            Uri[] uris = null;
+            if (result.getResultCode() == RESULT_OK) {
+                uris = WebChromeClient.FileChooserParams.parseResult(result.getResultCode(), result.getData());
+            }
+            filePathCallback.onReceiveValue(uris);
+            filePathCallback = null;
+        });
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -52,7 +74,27 @@ public class MainActivity extends AppCompatActivity {
         // Đăng ký cầu nối JavaScript -> Native TCP Socket cho máy in nhiệt WiFi Port 9100
         webView.addJavascriptInterface(new AndroidPrinterBridge(this), "AndroidPrinterBridge");
 
-        webView.setWebChromeClient(new WebChromeClient());
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback,
+                                             FileChooserParams params) {
+                if (filePathCallback != null) {
+                    filePathCallback.onReceiveValue(null);
+                }
+                filePathCallback = callback;
+                try {
+                    Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+                    intent.addCategory(Intent.CATEGORY_OPENABLE);
+                    intent.setType("*/*");
+                    fileChooserLauncher.launch(Intent.createChooser(intent, "Chọn file sao lưu (.json)"));
+                } catch (Exception e) {
+                    filePathCallback = null;
+                    callback.onReceiveValue(null);
+                    return false;
+                }
+                return true;
+            }
+        });
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
@@ -122,6 +164,42 @@ public class MainActivity extends AppCompatActivity {
             try {
                 Future<String> future = printerExecutor.submit(task);
                 return future.get(4500, TimeUnit.MILLISECONDS);
+            } catch (Exception e) {
+                return "ERROR: " + e.getMessage();
+            }
+        }
+
+        /**
+         * Lưu file (VD: file sao lưu .json) vào thư mục Download của điện thoại.
+         * Trả về "OK" nếu thành công, hoặc "ERROR: ..." nếu lỗi.
+         */
+        @JavascriptInterface
+        public String saveFile(final String fileName, final String mimeType, final String base64Data) {
+            try {
+                byte[] data = Base64.decode(base64Data, Base64.DEFAULT);
+                String safeName = fileName.replaceAll("[\\\\/:*?\"<>|]", "_");
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    ContentValues values = new ContentValues();
+                    values.put(MediaStore.Downloads.DISPLAY_NAME, safeName);
+                    values.put(MediaStore.Downloads.MIME_TYPE, mimeType);
+                    values.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+                    Uri uri = context.getContentResolver()
+                        .insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                    if (uri == null) return "ERROR: Không tạo được file";
+                    try (OutputStream out = context.getContentResolver().openOutputStream(uri)) {
+                        if (out == null) return "ERROR: Không mở được file";
+                        out.write(data);
+                        out.flush();
+                    }
+                } else {
+                    File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                    if (!dir.exists()) dir.mkdirs();
+                    try (FileOutputStream out = new FileOutputStream(new File(dir, safeName))) {
+                        out.write(data);
+                        out.flush();
+                    }
+                }
+                return "OK";
             } catch (Exception e) {
                 return "ERROR: " + e.getMessage();
             }
