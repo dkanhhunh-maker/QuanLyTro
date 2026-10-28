@@ -1073,6 +1073,318 @@
       return cmds;
     }
 
+    // ============================================================================
+    // 5C. IN BILL DẠNG HÌNH ẢNH: IN ĐÚNG NHƯ PHIẾU HIỂN THỊ TRONG MỤC "XEM QR"
+    // (Có chữ tiếng Việt có dấu + mã VietQR, gửi dạng ảnh raster ESC/POS khổ 80mm = 576 chấm)
+    // ============================================================================
+    function loadImageFromSrc(src) {
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => resolve(null);
+        img.src = src;
+      });
+    }
+
+    async function loadQrImageForPrint(qrUrl) {
+      // Tải mã QR bằng Java (không bị chặn CORS) rồi chuyển thành ảnh để vẽ
+      try {
+        const r = String(window.AndroidPrinterBridge.fetchUrlAsBase64(qrUrl));
+        if (r.startsWith('OK:')) {
+          return await loadImageFromSrc('data:image/png;base64,' + r.slice(3));
+        }
+      } catch (e) {}
+      return null;
+    }
+
+    // Trả về { payload, qrMissing } hoặc null nếu không thể in dạng hình (khi đó dùng lệnh chữ cũ)
+    async function buildReceiptRasterPayload(inv) {
+      if (
+        !(
+          window.AndroidPrinterBridge &&
+          typeof window.AndroidPrinterBridge.fetchUrlAsBase64 === 'function'
+        )
+      ) {
+        return null;
+      }
+
+      const s = state.settings;
+      const bankObj = VIETQR_BANKS.find((b) => b.bin === s.bankBin);
+      const transferContent = removeVietnameseTones(`${inv.roomName} dong tien T${inv.month}`);
+      const qrUrl = `https://img.vietqr.io/image/${s.bankBin}-${
+        s.accountNo
+      }-compact2.png?amount=${Math.max(0, inv.grandTotal)}&addInfo=${encodeURIComponent(
+        transferContent
+      )}&accountName=${encodeURIComponent(s.accountName)}`;
+
+      let qrImg = null;
+      if (s.accountNo) qrImg = await loadQrImageForPrint(qrUrl);
+
+      const DOTS = 576; // 80mm = 576 chấm
+      const PX = 310; // Bề rộng phiếu hiển thị (px) giống khung "Xem khổ 80mm"
+      const SC = DOTS / PX;
+      const PAD = 16;
+      const CW = PX - PAD * 2;
+      const FONT = "Inter, Roboto, 'Segoe UI', Arial, sans-serif";
+
+      const cv = document.createElement('canvas');
+      cv.width = DOTS;
+      cv.height = 7000;
+      const ctx = cv.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, cv.width, cv.height);
+      ctx.scale(SC, SC);
+      ctx.fillStyle = '#000000';
+      ctx.strokeStyle = '#000000';
+      ctx.textBaseline = 'top';
+
+      let y = PAD;
+      const setFont = (size, weight) => {
+        ctx.font = `${weight || 400} ${size}px ${FONT}`;
+      };
+      const wrap = (text, maxW) => {
+        const words = String(text == null ? '' : text).split(/\s+/);
+        const lines = [];
+        let cur = '';
+        words.forEach((w) => {
+          const t = cur ? cur + ' ' + w : w;
+          if (ctx.measureText(t).width <= maxW || !cur) cur = t;
+          else {
+            lines.push(cur);
+            cur = w;
+          }
+        });
+        if (cur) lines.push(cur);
+        return lines.length ? lines : [''];
+      };
+      const center = (text, size, weight, gap) => {
+        setFont(size, weight);
+        ctx.textAlign = 'center';
+        wrap(text, CW).forEach((l) => {
+          ctx.fillText(l, PX / 2, y);
+          y += size * 1.3;
+        });
+        y += gap || 0;
+      };
+      const row = (left, right, size, wl, wr) => {
+        setFont(size, wr || wl);
+        const rw = ctx.measureText(String(right)).width;
+        setFont(size, wl);
+        const lines = wrap(left, CW - rw - 8);
+        ctx.textAlign = 'left';
+        lines.forEach((l, i) => {
+          ctx.fillText(l, PAD, y + i * size * 1.3);
+        });
+        setFont(size, wr || wl);
+        ctx.textAlign = 'right';
+        ctx.fillText(String(right), PX - PAD, y);
+        y += lines.length * size * 1.3;
+      };
+      const sub = (text) => {
+        setFont(11, 400);
+        ctx.textAlign = 'left';
+        wrap(text, CW - 70).forEach((l) => {
+          ctx.fillText(l, PAD, y);
+          y += 14;
+        });
+      };
+      const dashed = (gapTop, gapBottom) => {
+        y += gapTop;
+        ctx.save();
+        ctx.setLineDash([3, 3]);
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(PAD, y);
+        ctx.lineTo(PX - PAD, y);
+        ctx.stroke();
+        ctx.restore();
+        y += gapBottom;
+      };
+
+      // ----- Đầu phiếu -----
+      center(String(s.houseName || '').toUpperCase(), 16, 900, 2);
+      {
+        const name = s.landlordName || 'Hoà Nguyễn 0353633755';
+        const segs = [
+          ['Người quản lý: ', 400],
+          [name, 800]
+        ];
+        if (s.landlordPhone) {
+          segs.push([' • SĐT: ', 400]);
+          segs.push([s.landlordPhone, 800]);
+        }
+        let total = 0;
+        segs.forEach(([t, w]) => {
+          setFont(12, w);
+          total += ctx.measureText(t).width;
+        });
+        if (total <= CW) {
+          let cx = (PX - total) / 2;
+          ctx.textAlign = 'left';
+          segs.forEach(([t, w]) => {
+            setFont(12, w);
+            ctx.fillText(t, cx, y);
+            cx += ctx.measureText(t).width;
+          });
+          y += 16;
+        } else {
+          center(segs.map((a) => a[0]).join(''), 12, 600, 0);
+        }
+      }
+      y += 6;
+      {
+        const pillText = `PHIẾU BÁO TIỀN TRỌ • KỲ ${inv.month}`;
+        setFont(12, 800);
+        const tw = Math.min(ctx.measureText(pillText).width, CW - 24);
+        const pw = tw + 24;
+        const ph = 22;
+        const px0 = (PX - pw) / 2;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(px0, y, pw, ph, 11);
+        else ctx.rect(px0, y, pw, ph);
+        ctx.stroke();
+        ctx.textAlign = 'center';
+        ctx.fillText(pillText, PX / 2, y + 5, CW - 24);
+        y += ph;
+      }
+      dashed(12, 10);
+
+      // ----- Thông tin phòng -----
+      const catSummary = getRoomCategorySummary(inv);
+      row('Phòng / Kiot:', `${inv.roomName}${catSummary ? ` (${catSummary})` : ''}`, 12, 400, 900);
+      y += 4;
+      row('Khách thuê:', `${inv.tenantName} (${inv.currentOccupants} người)`, 12, 400, 700);
+      y += 4;
+      row('Ngày lập phiếu:', inv.createdAt, 12, 400, 400);
+      dashed(10, 10);
+
+      // ----- Các khoản tiền -----
+      row('1. Tiền phòng cơ bản', formatVND(inv.baseRent), 12, 600, 700);
+      y += 8;
+      if (inv.extraPersonTotal > 0) {
+        row('2. Phụ thu thêm người ở', '+' + formatVND(inv.extraPersonTotal), 12, 600, 700);
+        sub(`Ở ${inv.currentOccupants} người (Định mức ${inv.standardOccupants} người)`);
+        y += 8;
+      }
+      row(`3. Tiền điện (${inv.electric.usage} kWh)`, formatVND(inv.electric.total), 12, 600, 700);
+      sub(`Cũ: ${inv.electric.oldIndex} → Mới: ${inv.electric.newIndex} (×${formatVND(inv.electric.price)})`);
+      y += 8;
+      row(
+        `4. Tiền nước (${inv.water.usage} ${inv.water.mode === 'person' ? 'người' : 'm³'})`,
+        formatVND(inv.water.total),
+        12,
+        600,
+        700
+      );
+      sub(
+        inv.water.mode === 'person'
+          ? `Khoán đầu người (×${formatVND(inv.water.price)})`
+          : `Cũ: ${inv.water.oldIndex} → Mới: ${inv.water.newIndex} (×${formatVND(inv.water.price)})`
+      );
+      y += 8;
+      if (inv.trashFee > 0) {
+        row('5. Tiền rác / Vệ sinh', formatVND(inv.trashFee), 12, 600, 700);
+        y += 8;
+      }
+      if (inv.extraFees && inv.extraFees.length > 0) {
+        setFont(12, 600);
+        ctx.textAlign = 'left';
+        ctx.fillText('6. Phí phát sinh (Tạm trú / Sửa chữa):', PAD, y);
+        y += 16;
+        inv.extraFees.forEach((ef) => {
+          row(`• ${ef.title}`, `${Number(ef.amount) >= 0 ? '+' : ''}${formatVND(ef.amount)}`, 11, 400, 700);
+          y += 3;
+        });
+        y += 5;
+      }
+      if (inv.previousDebt !== 0) {
+        row(
+          inv.previousDebt > 0 ? '7. Nợ cũ kỳ trước' : '7. Trừ tiền cọc/dư',
+          formatVND(inv.previousDebt),
+          12,
+          600,
+          700
+        );
+        y += 8;
+      }
+      y -= 8;
+      dashed(10, 12);
+
+      // ----- Tổng cộng -----
+      row('TỔNG CỘNG:', formatVND(inv.grandTotal), 14, 900, 900);
+      dashed(10, 12);
+
+      // ----- Mã VietQR -----
+      let qrMissing = false;
+      if (s.accountNo) {
+        center('Quét mã VietQR để chuyển khoản chính xác', 11, 600, 6);
+        if (qrImg) {
+          const QS = 190;
+          const bw = QS + 16;
+          const bx = (PX - bw) / 2;
+          ctx.lineWidth = 1;
+          ctx.strokeRect(bx, y, bw, bw);
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(qrImg, bx + 8, y + 8, QS, QS);
+          y += bw + 6;
+        } else {
+          qrMissing = true;
+          center('(Không tải được mã QR - kiểm tra internet)', 11, 600, 6);
+        }
+        center(`${bankObj ? bankObj.shortName : 'Ngân hàng'} • ${s.accountNo}`, 11, 800, 0);
+        center(`Chủ TK: ${s.accountName}`, 11, 600, 0);
+        center(`Nội dung: ${transferContent}`, 10, 400, 0);
+      }
+      if (inv.note) {
+        y += 8;
+        setFont(11, 400);
+        ctx.font = `italic 400 11px ${FONT}`;
+        ctx.textAlign = 'center';
+        wrap(inv.note, CW).forEach((l) => {
+          ctx.fillText(l, PX / 2, y);
+          y += 14;
+        });
+      }
+
+      // ----- Chân phiếu -----
+      dashed(10, 8);
+      center('PHẦN MỀM QUẢN LÝ & TÍNH TIỀN PHÒNG TRỌ / KIOT', 10, 800, 2);
+      center('Tác giả viết app: Hoà Nguyễn • ĐT/Zalo: 0353633755', 10, 700, 0);
+      y += PAD;
+
+      // ----- Chuyển thành ảnh đen trắng ESC/POS (GS v 0) -----
+      const H = Math.min(cv.height, Math.ceil(y * SC));
+      const data = ctx.getImageData(0, 0, DOTS, H).data;
+      const bytesPerRow = DOTS / 8;
+      const parts = ['\x1B@'];
+      const STRIP = 200;
+      for (let sy = 0; sy < H; sy += STRIP) {
+        const h = Math.min(STRIP, H - sy);
+        parts.push(
+          '\x1D\x76\x30\x00' +
+            String.fromCharCode(bytesPerRow & 255, bytesPerRow >> 8, h & 255, h >> 8)
+        );
+        const rowBytes = new Array(bytesPerRow * h);
+        let k = 0;
+        for (let r = 0; r < h; r++) {
+          for (let bx2 = 0; bx2 < bytesPerRow; bx2++) {
+            let b = 0;
+            for (let bit = 0; bit < 8; bit++) {
+              const i = ((sy + r) * DOTS + bx2 * 8 + bit) * 4;
+              const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+              if (lum < 160) b |= 0x80 >> bit;
+            }
+            rowBytes[k++] = String.fromCharCode(b);
+          }
+        }
+        parts.push(rowBytes.join(''));
+      }
+      parts.push('\n\n\n\x1D\x56\x41\x03');
+      return { payload: parts.join(''), qrMissing };
+    }
+
     function isRunningInsideAndroidApk() {
       return Boolean(
         window.AndroidPrinterBridge &&
@@ -2116,12 +2428,28 @@
         state.printerStatus = 'SENDING';
         renderApp();
 
-        const rawPayload = buildEscPos80mmPayload(inv);
+        // Ưu tiên in dạng hình ảnh giống hệt phiếu trong mục Xem QR; nếu không được thì in dạng chữ như cũ
+        let rawPayload = null;
+        let qrMissing = false;
+        try {
+          const rr = await buildReceiptRasterPayload(inv);
+          if (rr) {
+            rawPayload = rr.payload;
+            qrMissing = rr.qrMissing;
+          }
+        } catch (e) {
+          rawPayload = null;
+        }
+        if (!rawPayload) rawPayload = buildEscPos80mmPayload(inv);
         const res = await sendRawToWifiPrinter(ip, port, rawPayload);
 
         if (res.ok && res.method === 'APK_SOCKET') {
           state.printerStatus = 'CONNECTED';
-          showToast(`🖨️ [APK Socket] Đã in hóa đơn "${inv.roomName}" ra máy in ${ip}:${port}!`);
+          showToast(
+            qrMissing
+              ? `⚠️ Đã in "${inv.roomName}" nhưng KHÔNG có mã QR (điện thoại chưa có internet)!`
+              : `🖨️ [APK Socket] Đã in hóa đơn "${inv.roomName}" ra máy in ${ip}:${port}!`
+          );
         } else if (res.ok && res.method === 'RAWBT_APP') {
           state.printerStatus = 'CONNECTED';
           showToast(`🖨️ Đã chuyển lệnh in "${inv.roomName}" sang ứng dụng RawBT!`);

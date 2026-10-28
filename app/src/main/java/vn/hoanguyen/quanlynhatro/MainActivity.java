@@ -4,6 +4,7 @@ import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.ContentValues;
 import android.content.Intent;
+import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -23,10 +24,15 @@ import android.webkit.WebViewClient;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.view.WindowInsetsControllerCompat;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.util.concurrent.Callable;
@@ -57,6 +63,14 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // Thanh trạng thái phía trên cùng màu xanh giống header của app (teal-700), thanh phím dưới màu trắng
+        getWindow().setStatusBarColor(Color.parseColor("#0F766E"));
+        getWindow().setNavigationBarColor(Color.WHITE);
+        WindowInsetsControllerCompat insets =
+            new WindowInsetsControllerCompat(getWindow(), getWindow().getDecorView());
+        insets.setAppearanceLightStatusBars(false);
+        insets.setAppearanceLightNavigationBars(true);
 
         webView = new WebView(this);
         setContentView(webView);
@@ -150,7 +164,7 @@ public class MainActivity extends AppCompatActivity {
             Callable<String> task = () -> {
                 try (Socket socket = new Socket()) {
                     socket.connect(new InetSocketAddress(ip.trim(), port), 3500);
-                    socket.setSoTimeout(4000);
+                    socket.setSoTimeout(15000);
                     byte[] rawBytes = Base64.decode(base64Payload, Base64.DEFAULT);
                     OutputStream out = socket.getOutputStream();
                     out.write(rawBytes);
@@ -163,7 +177,44 @@ public class MainActivity extends AppCompatActivity {
             };
             try {
                 Future<String> future = printerExecutor.submit(task);
-                return future.get(4500, TimeUnit.MILLISECONDS);
+                return future.get(20000, TimeUnit.MILLISECONDS);
+            } catch (Exception e) {
+                return "ERROR: " + e.getMessage();
+            }
+        }
+
+        /**
+         * Tải một URL (VD: ảnh mã VietQR) và trả về Base64. "OK:<base64>" hoặc "ERROR: ...".
+         * Tải bằng Java nên không bị chặn CORS như trong trình duyệt.
+         */
+        @JavascriptInterface
+        public String fetchUrlAsBase64(final String urlStr) {
+            Callable<String> task = () -> {
+                HttpURLConnection conn = null;
+                try {
+                    conn = (HttpURLConnection) new URL(urlStr).openConnection();
+                    conn.setConnectTimeout(8000);
+                    conn.setReadTimeout(10000);
+                    conn.setRequestProperty("User-Agent", "Mozilla/5.0");
+                    if (conn.getResponseCode() != 200) {
+                        return "ERROR: HTTP " + conn.getResponseCode();
+                    }
+                    try (InputStream in = conn.getInputStream();
+                         ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
+                        byte[] buf = new byte[8192];
+                        int n;
+                        while ((n = in.read(buf)) > 0) bos.write(buf, 0, n);
+                        return "OK:" + Base64.encodeToString(bos.toByteArray(), Base64.NO_WRAP);
+                    }
+                } catch (Exception e) {
+                    return "ERROR: " + e.getMessage();
+                } finally {
+                    if (conn != null) conn.disconnect();
+                }
+            };
+            try {
+                Future<String> future = printerExecutor.submit(task);
+                return future.get(20000, TimeUnit.MILLISECONDS);
             } catch (Exception e) {
                 return "ERROR: " + e.getMessage();
             }
