@@ -26,6 +26,10 @@
       -webkit-tap-highlight-color: transparent;
     }
 
+    html {
+      background-color: #0f766e;
+    }
+
     body {
       background-color: #f1f5f9;
       color: #0f172a;
@@ -51,9 +55,14 @@
       scrollbar-width: none;
     }
 
-    /* Định dạng chuyên dụng khi bấm In Hóa Đơn Nhiệt 80mm */
+    /* Định dạng khi In: Giữ nguyên 100% giao diện, màu sắc, khung viền & font chữ Inter như phần Xem QR */
     @media print {
-      body {
+      * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+      }
+      html, body {
         background: #ffffff !important;
         margin: 0 !important;
         padding: 0 !important;
@@ -69,14 +78,11 @@
         position: absolute;
         left: 0;
         top: 0;
-        width: 80mm !important;
-        max-width: 80mm !important;
-        padding: 2mm !important;
-        margin: 0 !important;
-        box-shadow: none !important;
-        border: none !important;
+        width: 100% !important;
+        max-width: 380px !important;
+        padding: 16px !important;
+        margin: 0 auto !important;
         background: #ffffff !important;
-        color: #000000 !important;
       }
       .no-print {
         display: none !important;
@@ -1073,6 +1079,485 @@
       return cmds;
     }
 
+    // ============================================================================
+    // 5C. CHỤP & DỰNG NGUYÊN MẪU GIAO DIỆN "XEM QR" (FONT INTER + MÃ VIETQR) RA BITMAP ESC/POS (GS v 0)
+    //     Giúp máy in nhiệt WiFi K80 in ra GIỐNG HỆT 100% những gì nhìn thấy trong "Xem QR"
+    //     (Không bị đổi sang font chữ máy in thô hay giao diện khác)
+    // ============================================================================
+    function loadQrImageForCanvas(url) {
+      return new Promise((resolve) => {
+        if (!url) {
+          resolve(null);
+          return;
+        }
+        // Ưu tiên 1: Nếu trong DOM đang mở sẵn ảnh #receipt-vietqr-img đã tải xong
+        const existingImg = document.getElementById('receipt-vietqr-img');
+        if (existingImg && existingImg.complete && existingImg.naturalWidth > 0 && existingImg.src === url) {
+          try {
+            const testC = document.createElement('canvas');
+            testC.width = 4;
+            testC.height = 4;
+            testC.getContext('2d').drawImage(existingImg, 0, 0, 4, 4);
+            testC.toDataURL();
+            resolve(existingImg);
+            return;
+          } catch (e) {}
+        }
+
+        // Ưu tiên 2: Nếu chạy trong Android APK có cầu nối tải ảnh Base64 gốc (không bao giờ dính CORS)
+        if (
+          window.AndroidPrinterBridge &&
+          typeof window.AndroidPrinterBridge.fetchImageBase64 === 'function'
+        ) {
+          try {
+            const b64 = window.AndroidPrinterBridge.fetchImageBase64(url);
+            if (b64 && b64.startsWith('data:image/')) {
+              const imgNative = new Image();
+              imgNative.onload = () => resolve(imgNative);
+              imgNative.onerror = () => resolve(null);
+              imgNative.src = b64;
+              return;
+            }
+          } catch (e) {}
+        }
+
+        // Ưu tiên 3: Tải trực tiếp với crossOrigin = anonymous
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        const timer = setTimeout(() => resolve(null), 3200);
+        img.onload = () => {
+          clearTimeout(timer);
+          resolve(img);
+        };
+        img.onerror = () => {
+          clearTimeout(timer);
+          resolve(null);
+        };
+        img.src = url;
+      });
+    }
+
+    function drawRoundedRect(ctx, x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+    }
+
+    function drawDashedLine(ctx, x1, x2, y) {
+      ctx.save();
+      ctx.strokeStyle = '#64748b';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([7, 5]);
+      ctx.beginPath();
+      ctx.moveTo(x1, y);
+      ctx.lineTo(x2, y);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    async function renderVisualReceiptToCanvas(inv) {
+      const s = state.settings;
+      const bankObj = VIETQR_BANKS.find((b) => b.bin === s.bankBin);
+      const transferContent = removeVietnameseTones(`${inv.roomName} dong tien T${inv.month}`);
+      const qrUrl = s.accountNo
+        ? `https://img.vietqr.io/image/${s.bankBin}-${s.accountNo}-compact2.png?amount=${Math.max(
+            0,
+            inv.grandTotal
+          )}&addInfo=${encodeURIComponent(transferContent)}&accountName=${encodeURIComponent(
+            s.accountName
+          )}`
+        : '';
+
+      const qrImg = qrUrl ? await loadQrImageForCanvas(qrUrl) : null;
+
+      const W = 576; // Chuẩn khổ máy in nhiệt K80 (576 dots = 72 bytes/dòng)
+      const padX = 28;
+      const innerW = W - padX * 2;
+      const fontFamily = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+
+      // Tính chiều cao động theo đúng các mục hiển thị trong phần Xem QR
+      let totalH = 36;
+      totalH += 36 + 28 + 44 + 20; // Header + Người quản lý + Pill Kỳ thu
+      totalH += 34 * 3 + 22; // Phòng/Kiot, Khách thuê, Ngày lập phiếu
+
+      totalH += 38; // 1. Tiền phòng cơ bản
+      if (inv.extraPersonTotal > 0) totalH += 56; // 2. Phụ thu thêm người
+      totalH += 56; // 3. Tiền điện
+      totalH += 56; // 4. Tiền nước
+      if (inv.trashFee > 0) totalH += 38; // 5. Tiền rác
+      if (inv.extraFees && inv.extraFees.length > 0) {
+        totalH += 36 + inv.extraFees.length * 30; // 6. Phí phát sinh
+      }
+      if (inv.previousDebt !== 0) totalH += 38; // 7. Nợ cũ
+      totalH += 20;
+
+      totalH += 68; // TỔNG CỘNG
+      if (s.accountNo) {
+        totalH += 40 + (qrImg ? 300 : 30) + 92; // Khung VietQR + Thông tin TK
+      }
+      if (inv.note) {
+        totalH += 38;
+      }
+      totalH += 78; // Footer Tên phần mềm & Tác giả viết app
+      totalH += 24;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = W;
+      canvas.height = totalH;
+      const ctx = canvas.getContext('2d');
+
+      // Nền trắng tinh
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, W, totalH);
+
+      // Khung viền bo góc giống hệt thẻ #printable-receipt-area trong Xem QR
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 2;
+      drawRoundedRect(ctx, 8, 8, W - 16, totalH - 16, 22);
+      ctx.stroke();
+
+      let y = 44;
+
+      // 1. Tiêu đề Nhà trọ
+      ctx.fillStyle = '#0f172a';
+      ctx.textAlign = 'center';
+      ctx.font = `900 26px ${fontFamily}`;
+      ctx.fillText(String(s.houseName || 'NHÀ TRỌ').toUpperCase(), W / 2, y);
+      y += 28;
+
+      // Người quản lý & SĐT
+      ctx.font = `600 18px ${fontFamily}`;
+      ctx.fillStyle = '#334155';
+      const managerLine = `Người quản lý: ${s.landlordName || 'Hoà Nguyễn 0353633755'}${
+        s.landlordPhone ? ' • SĐT: ' + s.landlordPhone : ''
+      }`;
+      ctx.fillText(managerLine, W / 2, y);
+      y += 16;
+
+      // Khung viên thuốc: PHIẾU BÁO TIỀN TRỌ • KỲ ...
+      const pillText = `PHIẾU BÁO TIỀN TRỌ • KỲ ${inv.month}`;
+      ctx.font = `800 18px ${fontFamily}`;
+      const pillW = Math.min(innerW, Math.max(320, ctx.measureText(pillText).width + 44));
+      const pillX = (W - pillW) / 2;
+      ctx.fillStyle = '#f0fdfa';
+      drawRoundedRect(ctx, pillX, y, pillW, 36, 18);
+      ctx.fill();
+      ctx.strokeStyle = '#0f766e';
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+      ctx.fillStyle = '#0f172a';
+      ctx.fillText(pillText, W / 2, y + 24);
+      y += 52;
+
+      drawDashedLine(ctx, padX, W - padX, y);
+      y += 28;
+
+      // 2. Thông tin Phòng / Khách thuê / Ngày lập
+      const catSummary = getRoomCategorySummary(inv);
+      const drawRow = (leftText, rightText, leftFont, rightFont) => {
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#334155';
+        ctx.font = leftFont;
+        ctx.fillText(leftText, padX, y);
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#0f172a';
+        ctx.font = rightFont;
+        ctx.fillText(rightText, W - padX, y);
+      };
+
+      drawRow(
+        'Phòng / Kiot:',
+        `${inv.roomName}${catSummary ? ' (' + catSummary + ')' : ''}`,
+        `500 18px ${fontFamily}`,
+        `900 21px ${fontFamily}`
+      );
+      y += 32;
+
+      drawRow(
+        'Khách thuê:',
+        `${inv.tenantName} (${inv.currentOccupants} người)`,
+        `500 18px ${fontFamily}`,
+        `700 19px ${fontFamily}`
+      );
+      y += 32;
+
+      drawRow(
+        'Ngày lập phiếu:',
+        String(inv.createdAt || ''),
+        `500 18px ${fontFamily}`,
+        `500 18px ${fontFamily}`
+      );
+      y += 22;
+
+      drawDashedLine(ctx, padX, W - padX, y);
+      y += 30;
+
+      // 3. Chi tiết các khoản thu (Giữ nguyên bố cục 2 tầng như Xem QR)
+      drawRow(
+        '1. Tiền phòng cơ bản',
+        formatVND(inv.baseRent),
+        `600 19px ${fontFamily}`,
+        `700 19px ${fontFamily}`
+      );
+      y += 36;
+
+      if (inv.extraPersonTotal > 0) {
+        drawRow(
+          '2. Phụ thu thêm người ở',
+          '+' + formatVND(inv.extraPersonTotal),
+          `600 19px ${fontFamily}`,
+          `700 19px ${fontFamily}`
+        );
+        y += 22;
+        ctx.textAlign = 'left';
+        ctx.font = `500 16px ${fontFamily}`;
+        ctx.fillStyle = '#475569';
+        ctx.fillText(
+          `Ở ${inv.currentOccupants} người (Định mức ${inv.standardOccupants} người)`,
+          padX,
+          y
+        );
+        y += 32;
+      }
+
+      drawRow(
+        `3. Tiền điện (${inv.electric.usage} kWh)`,
+        formatVND(inv.electric.total),
+        `600 19px ${fontFamily}`,
+        `700 19px ${fontFamily}`
+      );
+      y += 22;
+      ctx.textAlign = 'left';
+      ctx.font = `500 16px ${fontFamily}`;
+      ctx.fillStyle = '#475569';
+      ctx.fillText(
+        `Cũ: ${inv.electric.oldIndex} → Mới: ${inv.electric.newIndex} (×${formatVND(
+          inv.electric.price
+        )})`,
+        padX,
+        y
+      );
+      y += 32;
+
+      drawRow(
+        `4. Tiền nước (${inv.water.usage} ${inv.water.mode === 'person' ? 'người' : 'm³'})`,
+        formatVND(inv.water.total),
+        `600 19px ${fontFamily}`,
+        `700 19px ${fontFamily}`
+      );
+      y += 22;
+      ctx.textAlign = 'left';
+      ctx.font = `500 16px ${fontFamily}`;
+      ctx.fillStyle = '#475569';
+      ctx.fillText(
+        inv.water.mode === 'person'
+          ? `Khoán đầu người (×${formatVND(inv.water.price)})`
+          : `Cũ: ${inv.water.oldIndex} → Mới: ${inv.water.newIndex} (×${formatVND(
+              inv.water.price
+            )})`,
+        padX,
+        y
+      );
+      y += 32;
+
+      if (inv.trashFee > 0) {
+        drawRow(
+          '5. Tiền rác / Vệ sinh',
+          formatVND(inv.trashFee),
+          `600 19px ${fontFamily}`,
+          `700 19px ${fontFamily}`
+        );
+        y += 36;
+      }
+
+      if (inv.extraFees && inv.extraFees.length > 0) {
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#0f172a';
+        ctx.font = `700 18px ${fontFamily}`;
+        ctx.fillText('6. Phí phát sinh (Tạm trú / Sửa chữa):', padX, y);
+        y += 28;
+        inv.extraFees.forEach((ef) => {
+          const sign = Number(ef.amount) >= 0 ? '+' : '';
+          drawRow(
+            `  • ${ef.title}`,
+            `${sign}${formatVND(ef.amount)}`,
+            `500 17px ${fontFamily}`,
+            `700 17px ${fontFamily}`
+          );
+          y += 28;
+        });
+        y += 6;
+      }
+
+      if (inv.previousDebt !== 0) {
+        drawRow(
+          inv.previousDebt > 0 ? '7. Nợ cũ kỳ trước' : '7. Trừ tiền cọc/dư',
+          formatVND(inv.previousDebt),
+          `600 19px ${fontFamily}`,
+          `700 19px ${fontFamily}`
+        );
+        y += 34;
+      }
+
+      drawDashedLine(ctx, padX, W - padX, y);
+      y += 40;
+
+      // 4. TỔNG CỘNG
+      drawRow(
+        'TỔNG CỘNG:',
+        formatVND(inv.grandTotal),
+        `900 22px ${fontFamily}`,
+        `900 30px ${fontFamily}`
+      );
+      y += 24;
+
+      drawDashedLine(ctx, padX, W - padX, y);
+      y += 30;
+
+      // 5. Mã VietQR & Thông tin ngân hàng giống hệt phần Xem QR
+      if (s.accountNo) {
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#334155';
+        ctx.font = `600 17px ${fontFamily}`;
+        ctx.fillText('Quét mã VietQR để chuyển khoản chính xác', W / 2, y);
+        y += 14;
+
+        if (qrImg) {
+          const boxSize = 284;
+          const boxX = (W - boxSize) / 2;
+          ctx.fillStyle = '#ffffff';
+          drawRoundedRect(ctx, boxX, y, boxSize, boxSize, 18);
+          ctx.fill();
+          ctx.strokeStyle = '#cbd5e1';
+          ctx.lineWidth = 1.8;
+          ctx.stroke();
+          ctx.drawImage(qrImg, boxX + 10, y + 10, boxSize - 20, boxSize - 20);
+          y += boxSize + 24;
+        } else {
+          y += 18;
+        }
+
+        ctx.fillStyle = '#0f172a';
+        ctx.font = `800 19px ${fontFamily}`;
+        ctx.fillText(
+          `${bankObj ? bankObj.shortName : 'Ngân hàng'} • ${s.accountNo}`,
+          W / 2,
+          y
+        );
+        y += 25;
+
+        ctx.font = `600 18px ${fontFamily}`;
+        ctx.fillText(`Chủ TK: ${s.accountName}`, W / 2, y);
+        y += 24;
+
+        ctx.fillStyle = '#475569';
+        ctx.font = `500 16px ${fontFamily}`;
+        ctx.fillText(`Nội dung: ${transferContent}`, W / 2, y);
+        y += 24;
+      }
+
+      if (inv.note) {
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#334155';
+        ctx.font = `italic 500 16px ${fontFamily}`;
+        ctx.fillText(String(inv.note), W / 2, y);
+        y += 22;
+      }
+
+      drawDashedLine(ctx, padX, W - padX, y);
+      y += 28;
+
+      // 6. Thông tin Tên phần mềm & Tác giả viết App in dưới cùng của Bill
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#0f172a';
+      ctx.font = `800 15px ${fontFamily}`;
+      ctx.fillText('PHẦN MỀM QUẢN LÝ & TÍNH TIỀN PHÒNG TRỌ / KIOT', W / 2, y);
+      y += 24;
+
+      ctx.font = `700 16px ${fontFamily}`;
+      ctx.fillText('Tác giả viết app: Hoà Nguyễn • ĐT/Zalo: 0353633755', W / 2, y);
+
+      return canvas;
+    }
+
+    function convertCanvasToEscPosRasterBytes(canvas) {
+      const width = 576; // 72 bytes / dòng (chuẩn máy in 80mm)
+      const height = canvas.height;
+      const ctx = canvas.getContext('2d');
+      const imgData = ctx.getImageData(0, 0, width, height).data;
+      const bytesPerRow = width / 8; // 72
+
+      const out = [];
+      // Khởi tạo máy in (ESC @) + Căn giữa (ESC a 1)
+      out.push(0x1b, 0x40, 0x1b, 0x61, 0x01);
+
+      // Chia thành từng dải ngang 120 dòng để mọi dòng máy in WiFi K80 nhận mượt không tràn bộ đệm
+      const bandHeight = 120;
+      for (let y0 = 0; y0 < height; y0 += bandHeight) {
+        const h = Math.min(bandHeight, height - y0);
+        // Lệnh in ảnh bitmap chuẩn ESC/POS: GS v 0 m xL xH yL yH
+        out.push(
+          0x1d,
+          0x76,
+          0x30,
+          0x00,
+          bytesPerRow & 0xff,
+          (bytesPerRow >> 8) & 0xff,
+          h & 0xff,
+          (h >> 8) & 0xff
+        );
+
+        for (let y = y0; y < y0 + h; y++) {
+          for (let bx = 0; bx < bytesPerRow; bx++) {
+            let bVal = 0;
+            for (let bit = 0; bit < 8; bit++) {
+              const x = bx * 8 + bit;
+              const idx = (y * width + x) * 4;
+              const alpha = imgData[idx + 3];
+              const r = imgData[idx];
+              const g = imgData[idx + 1];
+              const b = imgData[idx + 2];
+              const lum = alpha < 128 ? 255 : 0.299 * r + 0.587 * g + 0.114 * b;
+              if (lum < 185) {
+                bVal |= 1 << (7 - bit);
+              }
+            }
+            out.push(bVal);
+          }
+        }
+      }
+
+      // Đẩy giấy 4 dòng + Cắt giấy tự động (GS V 65 3)
+      out.push(0x0a, 0x0a, 0x0a, 0x0a, 0x1d, 0x56, 0x41, 0x03);
+      return new Uint8Array(out);
+    }
+
+    function uint8ArrayToBase64(bytes) {
+      let binary = '';
+      const chunkSize = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+      }
+      return window.btoa(binary);
+    }
+
+    async function buildVisualReceiptEscPosBase64(inv) {
+      const canvas = await renderVisualReceiptToCanvas(inv);
+      const rasterBytes = convertCanvasToEscPosRasterBytes(canvas);
+      return {
+        escPosBase64: uint8ArrayToBase64(rasterBytes),
+        pngDataUrl: canvas.toDataURL('image/png')
+      };
+    }
+
     function isRunningInsideAndroidApk() {
       return Boolean(
         window.AndroidPrinterBridge &&
@@ -1096,9 +1581,9 @@
       }
     }
 
-    function sendViaRawBtAndroidBridge(rawPayload) {
+    function sendViaRawBtAndroidBridge(rawPayload, isAlreadyBase64 = false) {
       try {
-        const base64Data = encodeEscPosToBase64(rawPayload);
+        const base64Data = isAlreadyBase64 ? rawPayload : encodeEscPosToBase64(rawPayload);
         const rawbtUrl = `rawbt:base64,${base64Data}`;
         const link = document.createElement('a');
         link.href = rawbtUrl;
@@ -1114,15 +1599,15 @@
       }
     }
 
-    async function sendRawToWifiPrinter(ip, port, rawPayload) {
+    async function sendRawToWifiPrinter(ip, port, rawPayload, isAlreadyBase64 = false) {
       const cleanIp = String(ip || '192.168.2.60').trim();
       const cleanPort = parseInt(String(port || '9100').trim(), 10) || 9100;
       const mode = state.settings.printerMode || 'AUTO';
+      const base64Data = isAlreadyBase64 ? rawPayload : encodeEscPosToBase64(rawPayload);
 
       // CÁCH 1: Đang chạy trong ứng dụng Android APK (Có Native TCP Socket Bridge thật kết nối thẳng tới IP:9100)
       if (isRunningInsideAndroidApk() && (mode === 'AUTO' || mode === 'APK_SOCKET')) {
         try {
-          const base64Data = encodeEscPosToBase64(rawPayload);
           const resultStr = window.AndroidPrinterBridge.printRawEscPos(
             cleanIp,
             cleanPort,
@@ -1140,7 +1625,7 @@
 
       // CÁCH 2: Chế độ gọi cầu nối RawBT trên điện thoại Android (In thật 100% không cần cài Android Studio)
       if (mode === 'RAWBT_APP') {
-        return sendViaRawBtAndroidBridge(rawPayload);
+        return sendViaRawBtAndroidBridge(base64Data, true);
       }
 
       // CÁCH 3: Chế độ mở hộp thoại In hệ thống khổ 80mm của Android (Mopria / WiFi Direct Print Service)
@@ -1694,7 +2179,7 @@
           message: `Bạn có chắc muốn xoá phiếu thu của "${inv.roomName}" (Kỳ ${
             inv.month
           } - ${formatVND(inv.grandTotal)}) khỏi lịch sử?`,
-          confirmText: 'Xoá phiếu',
+          confirmText: 'Xoá Phiếu',
           danger: true,
           onConfirm: () => {
             state.invoices = state.invoices.filter((i) => i.id !== invoiceId);
@@ -1716,7 +2201,7 @@
           title: 'Sang kỳ thu tiền tháng mới?',
           message:
             'Hệ thống sẽ tự động lưu các hóa đơn kỳ hiện tại vào Lịch sử, lấy Chỉ số Điện/Nước MỚI chuyển thành Chỉ số CŨ cho tháng tiếp theo, xoá trống các khoản phí phát sinh 1 lần (tạm trú, sửa điện) và đặt trạng thái các phòng về Chưa thu.',
-          confirmText: 'Chốt sang tháng mới',
+          confirmText: 'Chốt Sang Tháng Mới',
           danger: false,
           onConfirm: () => {
             state.rooms.forEach((r) => {
@@ -1775,7 +2260,7 @@
           )}) và Phụ thu thêm người (${formatVND(
             state.settings.defaultExtraPersonFee
           )}/người) cho toàn bộ ${state.rooms.length} phòng?`,
-          confirmText: 'Áp dụng ngay',
+          confirmText: 'Áp Dụng Ngay',
           danger: false,
           onConfirm: () => {
             state.rooms.forEach((r) => {
@@ -1794,8 +2279,9 @@
         renderApp();
       },
 
-      // Sao lưu & Đồng bộ dữ liệu
+      // Sao lưu & Đồng bộ dữ liệu (Hoạt động 100% cả trên Android APK lẫn Trình duyệt Web)
       exportBackupJson() {
+        const fileName = `SaoLuu_NhaTro_${new Date().toISOString().slice(0, 10)}.json`;
         const payload = {
           app: 'QuanLyNhaTro_Standalone_v3',
           exportedAt: new Date().toISOString(),
@@ -1803,47 +2289,118 @@
           rooms: state.rooms,
           invoices: state.invoices
         };
+        const jsonString = JSON.stringify(payload, null, 2);
+
+        // 1. Nếu đang chạy trong ứng dụng Android APK -> Gọi Native File Saver / Share của Android
         if (
           window.AndroidPrinterBridge &&
-          typeof window.AndroidPrinterBridge.saveFile === 'function'
+          typeof window.AndroidPrinterBridge.saveBackupJson === 'function'
         ) {
-          const fname = `SaoLuu_NhaTro_${new Date().toISOString().slice(0, 10)}.json`;
-          const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(payload, null, 2))));
-          const r = window.AndroidPrinterBridge.saveFile(fname, 'application/json', b64);
-          if (r === 'OK') showToast('Đã lưu file sao lưu vào thư mục Download: ' + fname);
-          else showToast('Không lưu được file sao lưu: ' + r, 'error');
-          return;
+          try {
+            const res = window.AndroidPrinterBridge.saveBackupJson(fileName, jsonString);
+            if (res && String(res).startsWith('OK')) {
+              showToast(`✅ Đã xuất file sao lưu "${fileName}" thành công!`);
+              return;
+            }
+          } catch (e) {
+            console.warn('Android saveBackupJson error:', e);
+          }
         }
-        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `SaoLuu_NhaTro_${new Date().toISOString().slice(0, 10)}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        showToast('Đã tải file sao lưu (.json) về máy!');
+
+        // 2. Nếu trình duyệt hỗ trợ Web Share API cho File trên di động
+        try {
+          if (navigator.canShare && window.File) {
+            const fileObj = new File([jsonString], fileName, { type: 'application/json' });
+            if (navigator.canShare({ files: [fileObj] })) {
+              navigator.share({
+                title: 'Sao Lưu Dữ Liệu Nhà Trọ',
+                text: 'File sao lưu dữ liệu phòng trọ & hoá đơn',
+                files: [fileObj]
+              }).catch(() => {});
+              showToast(`✅ Đã mở bảng Lưu / Chia sẻ file "${fileName}"!`);
+              return;
+            }
+          }
+        } catch (err) {}
+
+        // 3. Tải xuống trực tiếp qua thẻ <a> (Blob URL + Data URI dự phòng)
+        try {
+          const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = fileName;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(url), 1500);
+          showToast(`✅ Đã tải file sao lưu "${fileName}" về máy!`);
+        } catch (e) {
+          const dataUri =
+            'data:application/json;charset=utf-8,' + encodeURIComponent(jsonString);
+          const a = document.createElement('a');
+          a.href = dataUri;
+          a.download = fileName;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          showToast(`✅ Đã xuất file sao lưu "${fileName}"!`);
+        }
+      },
+
+      triggerImportBackupFile() {
+        // Nếu đang chạy trong Android APK và có hàm mở trình chọn file gốc của Android
+        if (
+          window.AndroidPrinterBridge &&
+          typeof window.AndroidPrinterBridge.openBackupFilePicker === 'function'
+        ) {
+          try {
+            window.AndroidPrinterBridge.openBackupFilePicker();
+            return;
+          } catch (e) {
+            console.warn('openBackupFilePicker fallback to input:', e);
+          }
+        }
+        const fileInput = document.getElementById('backup-file-input');
+        if (fileInput) {
+          fileInput.value = '';
+          fileInput.click();
+        }
+      },
+
+      processImportedJsonString(rawText) {
+        try {
+          const cleaned = String(rawText || '').trim();
+          const data = JSON.parse(cleaned);
+          if (!Array.isArray(data.rooms)) {
+            showToast('File sao lưu không đúng cấu trúc danh sách phòng!', 'error');
+            return false;
+          }
+          state.rooms = data.rooms;
+          if (Array.isArray(data.invoices)) state.invoices = data.invoices;
+          if (data.settings) state.settings = { ...DEFAULT_SETTINGS, ...data.settings };
+          syncSelectedRoomId();
+          saveData();
+          renderApp();
+          showToast(`✅ Đã khôi phục thành công ${state.rooms.length} phòng và ${state.invoices.length} hoá đơn!`);
+          return true;
+        } catch (err) {
+          showToast('❌ File sao lưu không hợp lệ hoặc bị lỗi định dạng JSON!', 'error');
+          return false;
+        }
       },
 
       importBackupJson(event) {
-        const file = event.target.files && event.target.files[0];
+        const file = event.target && event.target.files && event.target.files[0];
         if (!file) return;
         const reader = new FileReader();
         reader.onload = (e) => {
-          try {
-            const data = JSON.parse(e.target.result);
-            if (Array.isArray(data.rooms)) state.rooms = data.rooms;
-            if (Array.isArray(data.invoices)) state.invoices = data.invoices;
-            if (data.settings) state.settings = { ...DEFAULT_SETTINGS, ...data.settings };
-            syncSelectedRoomId();
-            saveData();
-            showToast('Khôi phục dữ liệu thành công!');
-          } catch (err) {
-            showToast('File sao lưu không hợp lệ!', 'error');
-          }
+          window.appActions.processImportedJsonString(e.target.result);
         };
-        reader.readAsText(file);
+        reader.onerror = () => {
+          showToast('❌ Không thể đọc file đã chọn!', 'error');
+        };
+        reader.readAsText(file, 'UTF-8');
         event.target.value = '';
       },
 
@@ -2019,7 +2576,7 @@
         }
       },
 
-      // IN 1 CHẠM NGẦM NGAY LẬP TỨC GIỐNG APP CHỐT ĐƠN (TUYỆT ĐỐI KHÔNG MỞ BẢNG XEM TRƯỚC QR)
+      // IN 1 CHẠM NGẦM NGAY LẬP TỨC VỚI ĐÚNG 100% GIAO DIỆN & FONT CHỮ CỦA "XEM QR" (CÓ CẢ MÃ VIETQR)
       async oneTouchPrintRoom(roomId) {
         const room = state.rooms.find((r) => r.id === roomId);
         if (!room) return;
@@ -2045,100 +2602,75 @@
         }
         saveData();
 
-        const ip = String(state.settings.printerIp || '192.168.2.60').trim();
-        const port = String(state.settings.printerPort || '9100').trim();
-        const rawPayload = buildEscPos80mmPayload(inv);
-
-        // 1. Nếu đang chạy trong ứng dụng Android APK -> Bắn thẳng TCP Socket 9100 ngầm 100%
-        if (isRunningInsideAndroidApk()) {
-          showToast(`🖨️ Đang in ngầm 1 chạm "${room.name}" tới ${ip}:${port}...`);
-          const res = await sendRawToWifiPrinter(ip, port, rawPayload);
-          if (res.ok) {
-            showToast(`✅ Đã in xong "${room.name}" (${formatVND(inv.grandTotal)}) qua ${ip}:${port}!`);
-          } else {
-            showToast(`❌ Lỗi kết nối máy in ${ip}:${port}: ${res.error || 'Kiểm tra lại WiFi'}`, 'error');
-          }
-          return;
-        }
-
-        // 2. Nếu đang mở trên điện thoại Android (chưa cài APK) hoặc chọn RawBT -> Gửi lệnh in ngầm qua giao thức RawBT + TCP
-        if (state.settings.printerMode === 'RAWBT_APP' || /Android/i.test(navigator.userAgent)) {
-          sendViaRawBtAndroidBridge(rawPayload);
-          showToast(`🖨️ Đã bắn lệnh in 1 chạm "${room.name}" (${formatVND(inv.grandTotal)}) tới máy in ${ip}:${port}!`);
-          return;
-        }
-
-        // 3. Nếu đang thử trên máy tính / khung Xem trước Canvas -> Gửi lệnh ngầm & báo rõ không mở popup QR
-        await sendRawToWifiPrinter(ip, port, rawPayload);
-        showToast(
-          `🖨️ [In 1 chạm] Đã phát lệnh in ngầm "${room.name}" (${formatVND(inv.grandTotal)}) tới ${ip}:${port} (Không mở bảng Xem QR)!`
-        );
+        await this.executeVisualXemQrPrint(inv);
       },
 
       async oneTouchPrintInvoice(invoiceId) {
         const inv = state.invoices.find((i) => i.id === invoiceId);
         if (!inv) return;
-        const ip = String(state.settings.printerIp || '192.168.2.60').trim();
-        const port = String(state.settings.printerPort || '9100').trim();
-        const rawPayload = buildEscPos80mmPayload(inv);
-
-        if (isRunningInsideAndroidApk()) {
-          showToast(`🖨️ Đang in ngầm 1 chạm "${inv.roomName}" tới ${ip}:${port}...`);
-          const res = await sendRawToWifiPrinter(ip, port, rawPayload);
-          if (res.ok) {
-            showToast(`✅ Đã in xong "${inv.roomName}" qua ${ip}:${port}!`);
-          } else {
-            showToast(`❌ Lỗi kết nối máy in ${ip}:${port}: ${res.error || ''}`, 'error');
-          }
-          return;
-        }
-
-        if (state.settings.printerMode === 'RAWBT_APP' || /Android/i.test(navigator.userAgent)) {
-          sendViaRawBtAndroidBridge(rawPayload);
-          showToast(`🖨️ Đã bắn lệnh in 1 chạm "${inv.roomName}" tới máy in ${ip}:${port}!`);
-          return;
-        }
-
-        await sendRawToWifiPrinter(ip, port, rawPayload);
-        showToast(
-          `🖨️ [In 1 chạm] Đã phát lệnh in ngầm "${inv.roomName}" tới ${ip}:${port} (Không mở bảng Xem QR)!`
-        );
+        await this.executeVisualXemQrPrint(inv);
       },
 
       async printInvoiceViaWifi80mm() {
         const inv = state.receiptModalInvoice;
         if (!inv) return;
+        await this.executeVisualXemQrPrint(inv);
+      },
 
+      async executeVisualXemQrPrint(inv) {
+        if (!inv) return;
         const ip = String(state.settings.printerIp || '192.168.2.60').trim();
         const port = String(state.settings.printerPort || '9100').trim();
-
-        state.receiptStyle = 'thermal';
         state.printerStatus = 'SENDING';
-        renderApp();
 
-        const rawPayload = buildEscPos80mmPayload(inv);
-        const res = await sendRawToWifiPrinter(ip, port, rawPayload);
+        if (
+          state.settings.printerMode === 'SYSTEM_PRINT' &&
+          window.AndroidPrinterBridge &&
+          typeof window.AndroidPrinterBridge.openAndroidSystemPrint === 'function'
+        ) {
+          window.AndroidPrinterBridge.openAndroidSystemPrint();
+          return;
+        }
 
-        if (res.ok && res.method === 'APK_SOCKET') {
+        showToast(`🖨️ Đang tạo bản in nguyên mẫu Xem QR "${inv.roomName}" tới ${ip}:${port}...`);
+
+        try {
+          const { escPosBase64 } = await buildVisualReceiptEscPosBase64(inv);
+
+          // 1. Nếu đang chạy trong ứng dụng Android APK -> Bắn thẳng ảnh Bitmap ESC/POS của Xem QR qua cổng 9100
+          if (isRunningInsideAndroidApk()) {
+            const res = await sendRawToWifiPrinter(ip, port, escPosBase64, true);
+            if (res.ok) {
+              state.printerStatus = 'CONNECTED';
+              showToast(`✅ Đã in nguyên mẫu Xem QR "${inv.roomName}" (${formatVND(inv.grandTotal)}) qua ${ip}:${port}!`);
+            } else {
+              state.printerStatus = 'FALLBACK';
+              showToast(`❌ Lỗi kết nối máy in ${ip}:${port}: ${res.error || 'Kiểm tra lại WiFi'}`, 'error');
+            }
+            return;
+          }
+
+          // 2. Nếu đang mở trên điện thoại Android (chế độ RawBT)
+          if (state.settings.printerMode === 'RAWBT_APP' || /Android/i.test(navigator.userAgent)) {
+            sendViaRawBtAndroidBridge(escPosBase64, true);
+            state.printerStatus = 'CONNECTED';
+            showToast(`🖨️ Đã gửi bản in nguyên mẫu Xem QR "${inv.roomName}" tới máy in ${ip}:${port}!`);
+            return;
+          }
+
+          // 3. Nếu đang mở trên trình duyệt máy tính -> Mở hộp thoại in đúng vùng #printable-receipt-area của Xem QR
+          const hadModal = Boolean(state.receiptModalInvoice);
+          if (!hadModal) {
+            state.receiptModalInvoice = inv;
+            renderApp();
+          }
           state.printerStatus = 'CONNECTED';
-          showToast(`🖨️ [APK Socket] Đã in hóa đơn "${inv.roomName}" ra máy in ${ip}:${port}!`);
-        } else if (res.ok && res.method === 'RAWBT_APP') {
-          state.printerStatus = 'CONNECTED';
-          showToast(`🖨️ Đã chuyển lệnh in "${inv.roomName}" sang ứng dụng RawBT!`);
-        } else if (res.ok && !isRunningInsideAndroidApk() && state.settings.printerMode === 'AUTO') {
-          // Khi mở trên trình duyệt web thông thường, HTTP POST tới port 9100 có thể bị máy in bỏ qua header HTTP,
-          // nên mở luôn hộp thoại in khổ 80mm để đảm bảo in ra giấy thật ngay cả khi chưa cài APK
-          state.printerStatus = 'CONNECTED';
-          showToast(`🖨️ Đã phát lệnh in tới ${ip}:${port} & mở trình in khổ 80mm...`);
           setTimeout(() => {
             window.print();
-          }, 350);
-        } else {
-          state.printerStatus = 'FALLBACK';
-          showToast(`🖨️ Đang mở trình in khổ 80mm cho máy in ${ip}:${port}...`);
-          setTimeout(() => {
-            window.print();
-          }, 300);
+          }, 250);
+        } catch (err) {
+          console.error('Visual print error:', err);
+          window.print();
         }
       },
 
@@ -2148,6 +2680,24 @@
         const rawPayload = buildEscPos80mmPayload(inv);
         sendViaRawBtAndroidBridge(rawPayload);
         showToast('🚀 Đã gửi lệnh ESC/POS sang ứng dụng RawBT để in ngay!');
+      }
+    };
+
+    // Hàm callback toàn cục để Android APK trả nội dung file .json khi người dùng chọn file từ bộ nhớ máy
+    window.onAndroidBackupFileLoaded = function (base64OrText, isBase64) {
+      try {
+        let jsonStr = base64OrText;
+        if (isBase64) {
+          const binary = window.atob(base64OrText);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) {
+            bytes[i] = binary.charCodeAt(i);
+          }
+          jsonStr = new TextDecoder('utf-8').decode(bytes);
+        }
+        window.appActions.processImportedJsonString(jsonStr);
+      } catch (e) {
+        showToast('❌ Lỗi đọc file sao lưu từ thiết bị Android!', 'error');
       }
     };
 
@@ -2282,7 +2832,7 @@
                 class="bg-white/15 hover:bg-white/25 active:scale-95 text-white text-right px-3 py-1.5 rounded-xl transition"
                 title="Xem thống kê doanh số"
               >
-                <span class="block text-[9px] text-emerald-100 font-semibold">Doanh thu kỳ này</span>
+                <span class="block text-[9px] text-emerald-100 font-semibold">Doanh Thu Kỳ Này</span>
                 <span class="font-black text-[11px] sm:text-xs text-amber-300">${formatVND(
                   totalExpected
                 )}</span>
@@ -2342,7 +2892,7 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3 10.5L12 3l9 7.5V21a1 1 0 01-1 1h-5.5v-6.5h-5V22H4a1 1 0 01-1-1v-10.5z"/>
               </svg>
             </div>
-            <span class="text-[10px] mt-0.5">Phòng trọ</span>
+            <span class="text-[10px] mt-0.5">Phòng Trọ</span>
             ${
               state.rooms.length > 0
                 ? `<span class="absolute top-0.5 right-2 bg-slate-200 text-slate-700 text-[9px] font-bold px-1.5 rounded-full">${state.rooms.length}</span>`
@@ -2365,7 +2915,7 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 7h6m-6 4h6m-6 4h4M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z"/>
               </svg>
             </div>
-            <span class="text-[10px] mt-0.5">Tính tiền</span>
+            <span class="text-[10px] mt-0.5">Tính Tiền</span>
           </button>
 
           <button
@@ -2383,7 +2933,7 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
               </svg>
             </div>
-            <span class="text-[10px] mt-0.5">Hoá đơn</span>
+            <span class="text-[10px] mt-0.5">Hoá Đơn</span>
             ${
               unpaidCount > 0
                 ? `<span class="absolute top-0.5 right-2 bg-rose-500 text-white text-[9px] font-bold px-1.5 rounded-full">${unpaidCount}</span>`
@@ -2406,7 +2956,7 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3 3v18h18M7 16v-5m4 5V8m4 8v-3m4 3V6"/>
               </svg>
             </div>
-            <span class="text-[10px] mt-0.5">Doanh số</span>
+            <span class="text-[10px] mt-0.5">Doanh Số</span>
           </button>
 
           <button
@@ -2425,7 +2975,7 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
               </svg>
             </div>
-            <span class="text-[10px] mt-0.5">Cài đặt</span>
+            <span class="text-[10px] mt-0.5">Cài Đặt</span>
           </button>
         </nav>
 
@@ -2459,13 +3009,13 @@
                 onclick="appActions.openAddRoomModal()"
                 class="w-full bg-teal-600 hover:bg-teal-700 active:scale-95 text-white font-extrabold text-xs py-3.5 px-4 rounded-2xl shadow-md transition"
               >
-                + Thêm phòng / Kiot mới
+                + Thêm Phòng / Kiot Mới
               </button>
               <button
                 onclick="appActions.restoreSampleRooms()"
                 class="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs py-2.5 px-4 rounded-xl transition"
               >
-                🔄 Khôi phục 4 phòng mẫu để dùng thử
+                🔄 Khôi Phục 4 Phòng Mẫu Để Dùng Thử
               </button>
             </div>
           </div>
@@ -2569,7 +3119,7 @@
                     : 'bg-amber-100 text-amber-900 border border-amber-300'
                 }"
               >
-                <span>${isPaid ? '✅ Đã thu' : '⏳ Chưa thu'}</span>
+                <span>${isPaid ? '✅ Đã Thu' : '⏳ Chưa Thu'}</span>
               </button>
             </div>
 
@@ -2657,46 +3207,43 @@
                 <span class="text-lg font-black text-teal-700">${formatVND(bill.grandTotal)}</span>
               </div>
 
-              <div class="flex items-center justify-between gap-1.5">
+              <div class="grid grid-cols-4 gap-2">
                 <button
+                  type="button"
                   onclick="appActions.openEditRoomModal('${room.id}')"
-                  class="bg-slate-100 hover:bg-teal-50 hover:text-teal-800 active:scale-95 text-slate-700 border border-slate-200 font-bold text-xs py-2.5 px-2.5 rounded-xl flex items-center gap-1 transition"
-                  title="Sửa chi tiết phòng"
+                  class="w-full h-10 px-1.5 bg-slate-100 hover:bg-teal-50 hover:text-teal-800 active:scale-95 text-slate-700 border border-slate-200 font-extrabold text-[11px] sm:text-xs rounded-xl flex items-center justify-center gap-1 transition shadow-2xs whitespace-nowrap"
+                  title="Sửa Chi Tiết Phòng"
                 >
                   ${ICON_PENCIL}
                   <span>Sửa</span>
                 </button>
 
                 <button
+                  type="button"
                   onclick="appActions.openDeleteRoomModal('${room.id}')"
-                  class="bg-rose-50 hover:bg-rose-100 active:scale-95 text-rose-600 border border-rose-200 font-bold text-xs py-2.5 px-2.5 rounded-xl flex items-center gap-1 transition"
-                  title="Xoá phòng"
+                  class="w-full h-10 px-1.5 bg-rose-50 hover:bg-rose-100 active:scale-95 text-rose-600 border border-rose-200 font-extrabold text-[11px] sm:text-xs rounded-xl flex items-center justify-center gap-1 transition shadow-2xs whitespace-nowrap"
+                  title="Xoá Phòng"
                 >
                   ${ICON_TRASH}
                   <span>Xoá</span>
                 </button>
 
                 <button
+                  type="button"
                   onclick="appActions.selectRoomForCalculator('${room.id}')"
-                  class="flex-1 bg-slate-900 hover:bg-slate-800 active:scale-95 text-white font-extrabold text-xs py-2.5 px-3 rounded-xl flex items-center justify-center gap-1 transition shadow-xs"
+                  class="w-full h-10 px-1.5 bg-slate-900 hover:bg-slate-800 active:scale-95 text-white font-extrabold text-[11px] sm:text-xs rounded-xl flex items-center justify-center gap-1 transition shadow-xs whitespace-nowrap"
+                  title="Tính Tiền Phòng"
                 >
-                  <span>🧮 Tính tiền</span>
+                  <span>🧮 Tính Tiền</span>
                 </button>
 
                 <button
+                  type="button"
                   onclick="appActions.saveAndOpenRoomReceipt('${room.id}')"
-                  class="bg-teal-600 hover:bg-teal-700 active:scale-95 text-white font-extrabold text-xs py-2.5 px-2.5 rounded-xl flex items-center justify-center gap-1 transition shadow-xs"
+                  class="w-full h-10 px-1.5 bg-teal-600 hover:bg-teal-700 active:scale-95 text-white font-extrabold text-[11px] sm:text-xs rounded-xl flex items-center justify-center gap-1 transition shadow-xs whitespace-nowrap"
                   title="Xem Phiếu & Mã VietQR"
                 >
                   <span>📄 Phiếu QR</span>
-                </button>
-
-                <button
-                  onclick="appActions.oneTouchPrintRoom('${room.id}')"
-                  class="bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 font-black text-xs py-2.5 px-2.5 rounded-xl flex items-center justify-center gap-1 transition shadow-xs"
-                  title="Bấm 1 chạm in ra giấy ngay lập tức"
-                >
-                  <span>🖨️ In ngay</span>
                 </button>
               </div>
             </div>
@@ -2716,7 +3263,7 @@
             <button
               onclick="appActions.clearRoomSearch()"
               class="mt-1 bg-teal-50 text-teal-700 font-bold text-xs px-3 py-1.5 rounded-xl border border-teal-200"
-            >Xoá bộ lọc tìm kiếm</button>
+            >Xoá Bộ Lọc Tìm Kiếm</button>
           </div>
         `;
       } else if (!hasAnyClassification) {
@@ -2826,7 +3373,7 @@
               onclick="appActions.rolloverAllRoomsToNewMonth()"
               class="bg-white/10 hover:bg-white/20 active:scale-95 text-xs font-bold text-teal-300 border border-teal-500/30 px-3 py-2 rounded-xl flex items-center gap-1.5 transition"
             >
-              <span>🔄 Sang kỳ mới</span>
+              <span>🔄 Sang Kỳ Mới</span>
             </button>
           </div>
 
@@ -2885,9 +3432,9 @@
                       ? `<div class="flex items-center gap-1 flex-wrap">
                           <span class="text-[10px] font-bold text-slate-400 mr-0.5">Tầng:</span>
                           ${[
-                            { id: 'ALL', label: 'Tất cả tầng' },
+                            { id: 'ALL', label: 'Tất Cả Tầng' },
                             { id: 'ground', label: '⬇️ Trệt' },
-                            { id: 'upstairs', label: '⬆️ Trên lầu' }
+                            { id: 'upstairs', label: '⬆️ Trên Lầu' }
                           ]
                             .map(
                               (fl) => `
@@ -2917,7 +3464,7 @@
                                 ? 'bg-teal-700 text-white shadow-2xs'
                                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                             }"
-                          >Tất cả dãy</button>
+                          >Tất Cả Dãy</button>
                           ${availableZones
                             .map(
                               (z) => `
@@ -2944,8 +3491,8 @@
           }">
             <div class="flex items-center gap-1">
               ${[
-                { id: 'ALL', label: 'Tất cả loại' },
-                { id: 'room', label: 'Phòng trọ' },
+                { id: 'ALL', label: 'Tất Cả Loại' },
+                { id: 'room', label: 'Phòng Trọ' },
                 { id: 'kiot', label: 'Kiot' }
               ]
                 .map(
@@ -2966,8 +3513,8 @@
             <div class="flex items-center gap-1">
               ${[
                 { id: 'ALL', label: 'Mọi TT' },
-                { id: 'UNPAID', label: 'Chưa thu' },
-                { id: 'PAID', label: 'Đã thu' }
+                { id: 'UNPAID', label: 'Chưa Thu' },
+                { id: 'PAID', label: 'Đã Thu' }
               ]
                 .map(
                   (st) => `
@@ -3024,7 +3571,7 @@
             }"
           >
             <span>⚡ ${
-              state.quickMeterMode ? 'Đang bật: Ghi đồng hồ nhanh' : 'Đi ghi đồng hồ nhanh'
+              state.quickMeterMode ? 'Đang Bật: Ghi Đồng Hồ Nhanh' : 'Đi Ghi Đồng Hồ Nhanh'
             }</span>
           </button>
 
@@ -3032,7 +3579,7 @@
             onclick="appActions.openAddRoomModal()"
             class="bg-teal-600 hover:bg-teal-700 active:scale-95 text-white font-extrabold text-xs py-2.5 px-3.5 rounded-2xl flex items-center gap-1 shadow-xs transition shrink-0"
           >
-            <span>+ Thêm phòng / Kiot</span>
+            <span>+ Thêm Phòng / Kiot</span>
           </button>
         </div>
 
@@ -3042,7 +3589,7 @@
             ? `<div class="bg-amber-50/90 border-2 border-amber-300 rounded-2xl p-3 space-y-2.5">
                 <div class="flex items-center justify-between text-xs text-amber-950">
                   <span class="font-extrabold">📋 Nhập nhanh Điện / Nước / Số người dọc dãy trọ:</span>
-                  <button onclick="appActions.toggleQuickMeterMode()" class="underline font-bold">Thu gọn</button>
+                  <button onclick="appActions.toggleQuickMeterMode()" class="underline font-bold">Thu Gọn</button>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5">
                   ${filteredRooms
@@ -3139,7 +3686,7 @@
               onclick="appActions.openAddRoomModal()"
               class="w-full bg-teal-600 hover:bg-teal-700 text-white font-extrabold text-xs py-3.5 px-4 rounded-2xl shadow-md"
             >
-              + Thêm phòng / Kiot mới
+              + Thêm Phòng / Kiot Mới
             </button>
           </div>
         `;
@@ -3210,7 +3757,7 @@
                 title="Sửa chi tiết phòng này"
               >
                 ${ICON_PENCIL}
-                <span>Sửa chi tiết</span>
+                <span>Sửa Chi Tiết</span>
               </button>
 
               <button
@@ -3220,7 +3767,7 @@
                 title="Xoá phòng này"
               >
                 ${ICON_TRASH}
-                <span>Xoá phòng</span>
+                <span>Xoá Phòng</span>
               </button>
             </div>
           </div>
@@ -3597,7 +4144,7 @@
               onclick="appActions.oneTouchPrintRoom('${room.id}')"
               class="bg-amber-400 hover:bg-amber-300 active:scale-95 text-slate-950 font-black text-xs py-3 px-2 rounded-xl shadow-md flex items-center justify-center gap-1 transition"
             >
-              <span>🖨️ In ngay</span>
+              <span>🖨️ In Ngay</span>
             </button>
           </div>
         </div>
@@ -3692,14 +4239,14 @@
           <!-- Bộ lọc trạng thái Hóa đơn -->
           <div class="flex gap-1.5">
             ${[
-              { id: 'ALL', label: `Tất cả (${state.invoices.length})` },
+              { id: 'ALL', label: `Tất Cả (${state.invoices.length})` },
               {
                 id: 'UNPAID',
-                label: `Chưa thu (${state.invoices.filter((i) => i.status === 'UNPAID').length})`
+                label: `Chưa Thu (${state.invoices.filter((i) => i.status === 'UNPAID').length})`
               },
               {
                 id: 'PAID',
-                label: `Đã thu (${state.invoices.filter((i) => i.status === 'PAID').length})`
+                label: `Đã Thu (${state.invoices.filter((i) => i.status === 'PAID').length})`
               }
             ]
               .map(
@@ -3736,7 +4283,7 @@
                   state.invoiceSearchQuery ||
                   state.invoiceFilterStatus !== 'ALL' ||
                   state.invoiceFilterMonth !== 'ALL'
-                    ? `<button onclick="appActions.clearInvoiceFilters()" class="mt-1 bg-teal-50 text-teal-700 font-bold text-xs px-3 py-1.5 rounded-xl border border-teal-200">Xoá bộ lọc hoá đơn</button>`
+                    ? `<button onclick="appActions.clearInvoiceFilters()" class="mt-1 bg-teal-50 text-teal-700 font-bold text-xs px-3 py-1.5 rounded-xl border border-teal-200">Xoá Bộ Lọc Hoá Đơn</button>`
                     : ''
                 }
               </div>`
@@ -3772,42 +4319,47 @@
                               : 'bg-amber-100 text-amber-900'
                           }"
                         >
-                          ${inv.status === 'PAID' ? '✅ Đã thu' : '⏳ Chưa thu'}
+                          ${inv.status === 'PAID' ? '✅ Đã Thu' : '⏳ Chưa Thu'}
                         </button>
                       </div>
                     </div>
 
-                    <div class="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
+                    <div class="grid grid-cols-4 gap-2 pt-2 border-t border-slate-100">
                       <button
+                        type="button"
                         onclick="appActions.deleteInvoiceFromHistory('${inv.id}')"
-                        class="p-2 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-100 transition"
-                        title="Xoá phiếu thu"
+                        class="w-full h-10 px-1.5 rounded-xl bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-100 font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1 transition whitespace-nowrap"
+                        title="Xoá Phiếu Thu"
                       >
                         ${ICON_TRASH}
+                        <span>Xoá</span>
                       </button>
 
                       <button
+                        type="button"
                         onclick="state.receiptModalInvoice = state.invoices.find(i => i.id === '${
                           inv.id
                         }'); appActions.copyZaloFromInvoiceModal();"
-                        class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs py-2.5 px-3 rounded-xl"
+                        class="w-full h-10 px-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 font-extrabold text-[11px] sm:text-xs rounded-xl flex items-center justify-center gap-1 transition whitespace-nowrap"
                       >
-                        📋 Copy gửi Zalo
+                        <span>📋 Copy Zalo</span>
                       </button>
 
                       <button
+                        type="button"
                         onclick="appActions.openExistingInvoiceReceipt('${inv.id}')"
-                        class="flex-1 bg-teal-600 hover:bg-teal-700 text-white font-extrabold text-xs py-2.5 px-2.5 rounded-xl shadow-xs"
+                        class="w-full h-10 px-1.5 bg-teal-600 hover:bg-teal-700 text-white font-extrabold text-[11px] sm:text-xs rounded-xl shadow-xs flex items-center justify-center gap-1 transition whitespace-nowrap"
                       >
-                        📄 Xem QR
+                        <span>📄 Phiếu QR</span>
                       </button>
 
                       <button
+                        type="button"
                         onclick="appActions.oneTouchPrintInvoice('${inv.id}')"
-                        class="bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs py-2.5 px-3 rounded-xl shadow-xs shrink-0"
-                        title="In ngay 1 chạm"
+                        class="w-full h-10 px-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[11px] sm:text-xs rounded-xl shadow-xs flex items-center justify-center gap-1 transition whitespace-nowrap"
+                        title="In Ngay Nguyên Mẫu Xem QR"
                       >
-                        🖨️ In ngay
+                        <span>🖨️ In Ngay</span>
                       </button>
                     </div>
                   </div>
@@ -4023,7 +4575,7 @@
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }"
             >
-              Tất cả (${state.rooms.length})
+              Tất Cả (${state.rooms.length})
             </button>
             ${state.rooms
               .map(
@@ -4064,7 +4616,7 @@
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }"
               >
-                Kỳ hiện tại (${escapeHtml(state.settings.billingMonth)})
+                Kỳ Hiện Tại (${escapeHtml(state.settings.billingMonth)})
               </button>
               <button
                 onclick="appActions.setAnalyticsPeriod('ALL_HISTORY')"
@@ -4074,7 +4626,7 @@
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }"
               >
-                Lịch sử tất cả kỳ
+                Lịch Sử Tất Cả Kỳ
               </button>
               ${historyMonths
                 .map(
@@ -4143,7 +4695,7 @@
                           : 'bg-amber-100 text-amber-900'
                       }"
                     >
-                      ${selectedRoomObj.status === 'PAID' ? '✅ Đã thu tiền' : '⏳ Chưa thu tiền'}
+                      ${selectedRoomObj.status === 'PAID' ? '✅ Đã Thu Tiền' : '⏳ Chưa Thu Tiền'}
                     </button>
                   </div>
                 </div>
@@ -4285,13 +4837,13 @@
                     onclick="appActions.selectRoomForCalculator('${selectedRoomObj.id}')"
                     class="flex-1 bg-slate-900 hover:bg-slate-800 text-white font-extrabold py-2.5 px-3 rounded-xl"
                   >
-                    🧮 Chỉnh sửa & Tính tiền phòng này
+                    🧮 Chỉnh Sửa & Tính Tiền Phòng Này
                   </button>
                   <button
                     onclick="appActions.saveAndOpenRoomReceipt('${selectedRoomObj.id}')"
                     class="flex-1 bg-teal-600 hover:bg-teal-700 text-white font-extrabold py-2.5 px-3 rounded-xl"
                   >
-                    📄 Xuất Phiếu QR phòng này
+                    📄 Xuất Phiếu QR Phòng Này
                   </button>
                 </div>
               </div>`
@@ -4536,14 +5088,14 @@
               onclick="appActions.testWifiPrinter()"
               class="bg-white hover:bg-teal-100/70 active:scale-95 text-teal-800 border border-teal-300 font-bold px-2.5 py-1.5 rounded-xl transition"
             >
-              🖨️ In thử
+              🖨️ In Thử
             </button>
             <button
               type="button"
               onclick="appActions.openPrinterModal()"
               class="bg-teal-600 hover:bg-teal-700 active:scale-95 text-white font-extrabold px-3 py-1.5 rounded-xl shadow-2xs transition"
             >
-              ⚙️ Cài đặt
+              ⚙️ Cài Đặt
             </button>
           </div>
         </div>
@@ -4562,7 +5114,7 @@
               rel="noopener noreferrer"
               class="bg-sky-500 hover:bg-sky-400 active:scale-95 text-white font-extrabold text-xs px-3.5 py-2.5 rounded-xl shadow-xs flex items-center gap-1.5 transition"
             >
-              <span>💬 Nhắn Zalo tác giả</span>
+              <span>💬 Nhắn Zalo Tác Giả</span>
             </a>
             <a
               href="tel:0353633755"
@@ -4707,7 +5259,7 @@
             onclick="appActions.applyDefaultPricesToAllRooms()"
             class="w-full bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-extrabold py-2.5 rounded-xl transition"
           >
-            🔄 Áp dụng đơn giá này cho tất cả ${state.rooms.length} phòng
+            🔄 Áp Dụng Đơn Giá Này Cho Tất Cả ${state.rooms.length} Phòng
           </button>
         </div>
 
@@ -4717,17 +5269,28 @@
             💾 Sao lưu & Đồng bộ dữ liệu phòng trọ
           </h3>
 
-          <div class="grid grid-cols-2 gap-2">
+          <div class="grid grid-cols-2 gap-2.5">
             <button
+              type="button"
               onclick="appActions.exportBackupJson()"
-              class="bg-slate-900 text-white font-bold py-2.5 px-3 rounded-xl"
+              class="h-11 bg-slate-900 hover:bg-slate-800 active:scale-95 text-white font-extrabold text-xs px-3 rounded-xl flex items-center justify-center gap-1.5 shadow-xs transition"
             >
-              ⬇️ Xuất file sao lưu (.json)
+              <span>⬇️ Xuất File Sao Lưu (.json)</span>
             </button>
-            <label class="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-2.5 px-3 rounded-xl text-center cursor-pointer">
-              <span>⬆️ Nhập file sao lưu (.json)</span>
-              <input type="file" accept=".json" onchange="appActions.importBackupJson(event)" class="hidden" />
-            </label>
+            <button
+              type="button"
+              onclick="appActions.triggerImportBackupFile()"
+              class="h-11 bg-teal-50 hover:bg-teal-100 active:scale-95 text-teal-900 border border-teal-300 font-extrabold text-xs px-3 rounded-xl flex items-center justify-center gap-1.5 shadow-2xs transition"
+            >
+              <span>⬆️ Nhập File Sao Lưu (.json)</span>
+            </button>
+            <input
+              id="backup-file-input"
+              type="file"
+              accept=".json,application/json,text/plain,*/*"
+              onchange="appActions.importBackupJson(event)"
+              class="hidden"
+            />
           </div>
 
           <div class="pt-2 border-t border-slate-100 space-y-2">
@@ -4737,7 +5300,7 @@
                 onclick="appActions.copySyncDataCode()"
                 class="text-teal-700 font-extrabold underline"
               >
-                Copy mã dữ liệu máy này
+                Copy Mã Dữ Liệu Máy Này
               </button>
             </div>
             <textarea
@@ -4750,7 +5313,7 @@
               onclick="appActions.applySyncDataCode()"
               class="w-full bg-teal-600 text-white font-bold py-2 rounded-xl"
             >
-              Nạp dữ liệu từ mã đã dán
+              Nạp Dữ Liệu Từ Mã Đã Dán
             </button>
           </div>
         </div>
@@ -5085,7 +5648,7 @@
                         class="bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 font-extrabold py-3 px-3 rounded-xl flex items-center gap-1 transition"
                       >
                         ${ICON_TRASH}
-                        <span>Xoá phòng</span>
+                        <span>Xoá Phòng</span>
                       </button>`
                     : `<button
                         type="button"
@@ -5170,14 +5733,14 @@
                 onclick="appActions.closeDeleteRoomModal()"
                 class="flex-1 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 font-bold text-slate-700 transition"
               >
-                Huỷ bỏ
+                Huỷ Bỏ
               </button>
               <button
                 type="button"
                 onclick="appActions.confirmDeleteRoom()"
                 class="flex-1 py-3 rounded-xl bg-rose-600 hover:bg-rose-700 active:scale-95 font-extrabold text-white shadow-md transition"
               >
-                🗑️ Xoá phòng ngay
+                🗑️ Xoá Phòng Ngay
               </button>
             </div>
           </div>
@@ -5269,7 +5832,7 @@
                     <svg class="w-5 h-5 text-white shrink-0" fill="currentColor" viewBox="0 0 24 24">
                       <path d="M19 8H5c-1.66 0-3 1.34-3 3v6h4v4h12v-4h4v-6c0-1.66-1.34-3-3-3zm-3 11H8v-5h8v5zm3-7c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-1-9H6v4h12V3z"/>
                     </svg>
-                    <span>In thử</span>
+                    <span>In Thử</span>
                   </button>
                 </div>
 
@@ -5364,47 +5927,25 @@
       return `
         <div class="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto">
           <div class="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden my-auto max-h-[92vh] flex flex-col">
-            <!-- Thanh chọn mẫu hiển thị & Cấu hình máy in trên đầu Modal (Ẩn khi in) -->
-            <div class="bg-slate-900 text-white px-3.5 py-3 flex items-center justify-between gap-1.5 no-print">
-              <div class="flex items-center gap-1">
-                <button
-                  onclick="state.receiptStyle = 'zalo'; renderApp();"
-                  class="px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition ${
-                    state.receiptStyle === 'zalo'
-                      ? 'bg-emerald-500 text-slate-950'
-                      : 'bg-slate-800 text-slate-300'
-                  }"
-                >
-                  📱 Mẫu Zalo
-                </button>
-                <button
-                  onclick="state.receiptStyle = 'thermal'; renderApp();"
-                  class="px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition ${
-                    state.receiptStyle === 'thermal'
-                      ? 'bg-emerald-500 text-slate-950'
-                      : 'bg-slate-800 text-slate-300'
-                  }"
-                >
-                  📄 Xem khổ 80mm
-                </button>
+            <!-- Thanh tiêu đề Phiếu Thu & Mã VietQR (Giữ nguyên 1 giao diện chuẩn khi Xem & In) -->
+            <div class="bg-gradient-to-r from-teal-700 to-emerald-600 text-white px-4 py-3 flex items-center justify-between gap-2 no-print">
+              <div class="flex items-center gap-2">
+                <span class="text-base">📄</span>
+                <span class="font-extrabold text-xs sm:text-sm">Phiếu Báo Tiền Trọ & Mã VietQR</span>
               </div>
               <button
                 onclick="appActions.closeReceiptModal()"
-                class="p-1.5 rounded-xl bg-slate-800 text-slate-300 hover:text-white text-xs font-bold shrink-0"
+                class="px-2.5 py-1 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs font-extrabold shrink-0 transition"
               >
-                ✕
+                ✕ Đóng
               </button>
             </div>
 
-            <!-- VÙNG HIỂN THỊ PHIẾU THU (#printable-receipt-area) -->
+            <!-- VÙNG HIỂN THỊ & IN PHIẾU THU (#printable-receipt-area - Giữ nguyên 100% font chữ & bố cục khi in) -->
             <div class="p-4 overflow-y-auto flex-1 bg-slate-100">
               <div
                 id="printable-receipt-area"
-                class="mx-auto bg-white rounded-2xl p-5 shadow-sm border ${
-                  state.receiptStyle === 'thermal'
-                    ? 'max-w-[310px] font-mono border-dashed border-slate-400 text-black'
-                    : 'border-slate-200 text-slate-900'
-                }"
+                class="mx-auto bg-white rounded-2xl p-5 shadow-sm border border-slate-200 text-slate-900"
               >
                 <div class="text-center border-b border-dashed border-slate-300 pb-3">
                   <h2 class="font-black text-base uppercase tracking-tight">${escapeHtml(
@@ -5538,6 +6079,8 @@
                         <div class="text-[11px] font-semibold text-slate-600">Quét mã VietQR để chuyển khoản chính xác</div>
                         <div class="bg-white p-2 rounded-xl border border-slate-200 inline-block">
                           <img
+                            id="receipt-vietqr-img"
+                            crossorigin="anonymous"
                             src="${qrUrl}"
                             alt="VietQR"
                             class="w-44 h-44 object-contain mx-auto"
@@ -5577,19 +6120,19 @@
               </div>
             </div>
 
-            <!-- Thanh nút dưới cùng Modal: Copy Zalo & In WiFi Khổ 80mm (Port 9100) -->
+            <!-- Thanh nút dưới cùng Modal: Copy Zalo & In Nguyên Mẫu Xem QR -->
             <div class="p-3.5 bg-white border-t border-slate-200 grid grid-cols-2 gap-2.5 no-print">
               <button
                 onclick="appActions.copyZaloFromInvoiceModal()"
-                class="bg-teal-600 hover:bg-teal-700 active:scale-95 text-white font-extrabold text-xs py-3 px-3 rounded-xl shadow-xs flex items-center justify-center gap-1"
+                class="h-11 bg-teal-600 hover:bg-teal-700 active:scale-95 text-white font-extrabold text-xs px-3 rounded-xl shadow-xs flex items-center justify-center gap-1.5 transition"
               >
-                <span>📋 Copy gửi Zalo</span>
+                <span>📋 Copy Gửi Zalo</span>
               </button>
               <button
                 onclick="appActions.printInvoiceViaWifi80mm()"
-                class="bg-gradient-to-r from-teal-700 to-emerald-600 hover:opacity-95 active:scale-95 text-white font-extrabold text-xs py-3 px-3 rounded-xl shadow-md flex items-center justify-center gap-1.5"
+                class="h-11 bg-gradient-to-r from-teal-700 to-emerald-600 hover:opacity-95 active:scale-95 text-white font-extrabold text-xs px-3 rounded-xl shadow-md flex items-center justify-center gap-1.5 transition"
               >
-                <span>🖨️ In Bill WiFi 80mm</span>
+                <span>🖨️ In Phiếu Ngay</span>
               </button>
             </div>
           </div>
@@ -5612,13 +6155,13 @@
               <button
                 onclick="state.confirmModal = null; renderApp();"
                 class="flex-1 py-2.5 rounded-xl bg-slate-100 font-bold text-xs text-slate-700"
-              >Hủy</button>
+              >Huỷ Bỏ</button>
               <button
                 id="confirm-modal-ok-btn"
                 class="flex-1 py-2.5 rounded-xl font-extrabold text-xs text-white ${
                   c.danger ? 'bg-rose-600 hover:bg-rose-700' : 'bg-teal-600 hover:bg-teal-700'
                 }"
-              >${escapeHtml(c.confirmText || 'Đồng ý')}</button>
+              >${escapeHtml(c.confirmText || 'Đồng Ý')}</button>
             </div>
           </div>
         </div>
