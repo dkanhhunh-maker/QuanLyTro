@@ -1803,6 +1803,17 @@
           rooms: state.rooms,
           invoices: state.invoices
         };
+        if (
+          window.AndroidPrinterBridge &&
+          typeof window.AndroidPrinterBridge.saveFile === 'function'
+        ) {
+          const fname = `SaoLuu_NhaTro_${new Date().toISOString().slice(0, 10)}.json`;
+          const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(payload, null, 2))));
+          const r = window.AndroidPrinterBridge.saveFile(fname, 'application/json', b64);
+          if (r === 'OK') showToast('Đã lưu file sao lưu vào thư mục Download: ' + fname);
+          else showToast('Không lưu được file sao lưu: ' + r, 'error');
+          return;
+        }
         const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
