@@ -1167,16 +1167,20 @@
       const s = state.settings;
       const bankObj = VIETQR_BANKS.find((b) => b.bin === s.bankBin);
       const transferContent = removeVietnameseTones(`${inv.roomName} dong tien T${inv.month}`);
-      const qrUrl = s.accountNo
-        ? `https://img.vietqr.io/image/${s.bankBin}-${s.accountNo}-compact2.png?amount=${Math.max(
-            0,
-            inv.grandTotal
-          )}&addInfo=${encodeURIComponent(transferContent)}&accountName=${encodeURIComponent(
-            s.accountName
-          )}`
-        : '';
+      // Khi IN: dùng ảnh "qr_only" (chỉ có mã QR, không có logo/tiêu đề) để in được LỚN và quét dễ.
+      // Nếu tải ảnh này lỗi thì quay về ảnh compact2 như trong màn hình Xem QR.
+      const buildQrUrl = (template) =>
+        s.accountNo
+          ? `https://img.vietqr.io/image/${s.bankBin}-${s.accountNo}-${template}.png?amount=${Math.max(
+              0,
+              inv.grandTotal
+            )}&addInfo=${encodeURIComponent(transferContent)}&accountName=${encodeURIComponent(
+              s.accountName
+            )}`
+          : '';
 
-      const qrImg = qrUrl ? await loadQrImageForCanvas(qrUrl) : null;
+      let qrImg = s.accountNo ? await loadQrImageForCanvas(buildQrUrl('qr_only')) : null;
+      if (s.accountNo && !qrImg) qrImg = await loadQrImageForCanvas(buildQrUrl('compact2'));
 
       const W = 576; // Chuẩn khổ máy in nhiệt K80 (576 dots = 72 bytes/dòng)
       const padX = 28;
@@ -1201,7 +1205,7 @@
 
       totalH += 68; // TỔNG CỘNG
       if (s.accountNo) {
-        totalH += 40 + (qrImg ? 300 : 30) + 92; // Khung VietQR + Thông tin TK
+        totalH += 40 + (qrImg ? 470 : 30) + 92; // Khung VietQR + Thông tin TK
       }
       if (inv.note) {
         totalH += 38;
@@ -1431,7 +1435,7 @@
         y += 14;
 
         if (qrImg) {
-          const boxSize = 284;
+          const boxSize = 470; // ~58mm: đủ lớn để điện thoại quét được mã in nhiệt
           const boxX = (W - boxSize) / 2;
           ctx.fillStyle = '#ffffff';
           drawRoundedRect(ctx, boxX, y, boxSize, boxSize, 18);
@@ -1439,6 +1443,8 @@
           ctx.strokeStyle = '#cbd5e1';
           ctx.lineWidth = 1.8;
           ctx.stroke();
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
           ctx.drawImage(qrImg, boxX + 10, y + 10, boxSize - 20, boxSize - 20);
           y += boxSize + 24;
         } else {
