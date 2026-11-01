@@ -1137,6 +1137,29 @@
       });
     }
 
+    // Ảnh QR trên màn hình Xem phiếu: nếu WebView không tải trực tiếp được (CORS / mạng),
+    // thử tải lại qua cầu nối Android (Base64) rồi mới ẩn ảnh.
+    function handleReceiptQrError(img) {
+      if (!img || img.dataset.qrRetried === '1') {
+        if (img) img.style.display = 'none';
+        return;
+      }
+      img.dataset.qrRetried = '1';
+      try {
+        if (
+          window.AndroidPrinterBridge &&
+          typeof window.AndroidPrinterBridge.fetchImageBase64 === 'function'
+        ) {
+          const b64 = window.AndroidPrinterBridge.fetchImageBase64(img.dataset.qrUrl);
+          if (b64 && b64.startsWith('data:image/')) {
+            img.src = b64;
+            return;
+          }
+        }
+      } catch (e) {}
+      img.style.display = 'none';
+    }
+
     function drawRoundedRect(ctx, x, y, w, h, r) {
       ctx.beginPath();
       ctx.moveTo(x + r, y);
@@ -6086,11 +6109,11 @@
                         <div class="bg-white p-2 rounded-xl border border-slate-200 inline-block">
                           <img
                             id="receipt-vietqr-img"
-                            crossorigin="anonymous"
                             src="${qrUrl}"
+                            data-qr-url="${qrUrl}"
                             alt="VietQR"
                             class="w-44 h-44 object-contain mx-auto"
-                            onerror="this.style.display='none'"
+                            onerror="handleReceiptQrError(this)"
                           />
                         </div>
                         <div class="text-[11px] text-slate-700">
