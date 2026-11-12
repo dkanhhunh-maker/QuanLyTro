@@ -1,0 +1,10 @@
+{
+  "name": "quan-ly-tro",
+  "private": true,
+  "scripts": {
+    "build:css": "tailwindcss -c tailwind.config.js -i styles/input.css -o docs/app.css --minify"
+  },
+  "devDependencies": {
+    "tailwindcss": "3.4.17"
+  }
+}

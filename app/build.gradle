@@ -34,3 +34,15 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'androidx.webkit:webkit:1.10.0'
 }
+
+// Giao diện chỉ sửa 1 chỗ: thư mục docs/ (bản web GitHub Pages).
+// Mỗi lần build APK, Gradle tự chép index.html + app.css + fonts sang assets nên APK và web luôn giống nhau.
+tasks.register('syncWebAssets', Copy) {
+    from("${rootDir}/docs") {
+        include 'index.html', 'app.css', 'fonts/**'
+    }
+    into "${projectDir}/src/main/assets"
+}
+tasks.named('preBuild') {
+    dependsOn 'syncWebAssets'
+}

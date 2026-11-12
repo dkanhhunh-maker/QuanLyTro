@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 7.x : icon vuông bo góc màu xanh cổ vịt + ngôi nhà trắng (giống icon trên web) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+    <path
+        android:fillColor="#0D9488"
+        android:pathData="M120,0h272a120,120 0,0 1,120 120v272a120,120 0,0 1,-120 120h-272a120,120 0,0 1,-120 -120v-272a120,120 0,0 1,120 -120z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M256,112L112,232h48v168h192V232h48L256,112zM216,352v-80h80v80h-80z" />
+</vector>

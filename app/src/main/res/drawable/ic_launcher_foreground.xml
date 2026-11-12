@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Hình ngôi nhà trắng của icon app (vùng an toàn 66dp ở giữa khung 108dp của adaptive icon) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="0.1875"
+        android:scaleY="0.1875"
+        android:translateX="6"
+        android:translateY="6">
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M256,112L112,232h48v168h192V232h48L256,112zM216,352v-80h80v80h-80z" />
+    </group>
+</vector>

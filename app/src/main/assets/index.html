@@ -12,13 +12,9 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="theme-color" content="#0f766e">
 
-  <!-- Tailwind CSS CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
-
-  <!-- Font chữ Inter rõ nét trên cả iOS và Android -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <!-- Tailwind CSS + font Inter đóng gói sẵn trong app.css (chạy được khi không có mạng).
+       Sửa giao diện (thêm class Tailwind mới) xong nhớ chạy: npm install && npm run build:css -->
+  <link rel="stylesheet" href="app.css">
 
   <style>
     * {
@@ -529,6 +525,7 @@
       roomFilterZone: 'ALL', // 'ALL' hoặc tên dãy phòng
       roomFilterStatus: 'ALL', // 'ALL' | 'UNPAID' | 'PAID'
       roomSortBy: 'default', // 'default' | 'total_desc' | 'total_asc'
+      roomFiltersOpen: false, // Mở / thu gọn khung Lọc thêm (Tầng, Dãy, Loại, Sắp xếp)
 
       // TÌM KIẾM & LỌC DANH SÁCH HÓA ĐƠN
       invoiceSearchQuery: '',
@@ -604,7 +601,63 @@
         state.settings = { ...DEFAULT_SETTINGS };
       }
 
+      normalizeLoadedMonths();
       syncSelectedRoomId();
+    }
+
+    // Chuẩn hoá kỳ thu về đúng 1 dạng "MM/YYYY" (VD: "10/26", "10-2026", "2026-10", "T10/2026" -> "10/2026")
+    // Trả về null nếu không đọc được tháng/năm hợp lệ.
+    function normalizeBillingMonth(val) {
+      const s = String(val || '').trim();
+      if (!s) return null;
+      const nums = s.match(/\d+/g);
+      if (!nums || nums.length !== 2) return null;
+      let month;
+      let year;
+      if (nums[0].length === 4) {
+        year = Number(nums[0]);
+        month = Number(nums[1]);
+      } else {
+        month = Number(nums[0]);
+        year = Number(nums[1]);
+        if (nums[1].length <= 2) year += 2000;
+        else if (nums[1].length !== 4) return null;
+      }
+      if (!(month >= 1 && month <= 12) || !(year >= 2000 && year <= 2099)) return null;
+      return `${String(month).padStart(2, '0')}/${year}`;
+    }
+
+    // Khoá sắp xếp kỳ "MM/YYYY" theo thời gian (VD: "10/2026" -> 2026*12+10)
+    function monthSortKey(val) {
+      const norm = normalizeBillingMonth(val);
+      if (!norm) return 0;
+      const [m, y] = norm.split('/').map(Number);
+      return y * 12 + m;
+    }
+
+    // Kỳ thu kế tiếp: "12/2026" -> "01/2027"
+    function getNextBillingMonth(val) {
+      const norm = normalizeBillingMonth(val);
+      if (!norm) return null;
+      let [m, y] = norm.split('/').map(Number);
+      m += 1;
+      if (m > 12) {
+        m = 1;
+        y += 1;
+      }
+      return `${String(m).padStart(2, '0')}/${y}`;
+    }
+
+    // Gộp các kỳ gõ khác kiểu ("10/26" và "10/2026") của dữ liệu cũ / file khôi phục về cùng 1 kỳ
+    function normalizeLoadedMonths() {
+      const cur = normalizeBillingMonth(state.settings.billingMonth);
+      if (cur) state.settings.billingMonth = cur;
+      if (Array.isArray(state.invoices)) {
+        state.invoices.forEach((inv) => {
+          const m = inv && normalizeBillingMonth(inv.month);
+          if (m) inv.month = m;
+        });
+      }
     }
 
     function syncSelectedRoomId() {
@@ -1109,31 +1162,35 @@
           window.AndroidPrinterBridge &&
           typeof window.AndroidPrinterBridge.fetchImageBase64 === 'function'
         ) {
-          try {
-            const b64 = window.AndroidPrinterBridge.fetchImageBase64(url);
-            if (b64 && b64.startsWith('data:image/')) {
+          callNativeAsync('fetchImageBase64', [url], 7000).then((b64) => {
+            if (b64 && String(b64).startsWith('data:image/')) {
               const imgNative = new Image();
               imgNative.onload = () => resolve(imgNative);
-              imgNative.onerror = () => resolve(null);
+              imgNative.onerror = () => loadDirect();
               imgNative.src = b64;
-              return;
+            } else {
+              loadDirect();
             }
-          } catch (e) {}
+          });
+          return;
         }
+        loadDirect();
 
         // Ưu tiên 3: Tải trực tiếp với crossOrigin = anonymous
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        const timer = setTimeout(() => resolve(null), 3200);
-        img.onload = () => {
-          clearTimeout(timer);
-          resolve(img);
-        };
-        img.onerror = () => {
-          clearTimeout(timer);
-          resolve(null);
-        };
-        img.src = url;
+        function loadDirect() {
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          const timer = setTimeout(() => resolve(null), 3200);
+          img.onload = () => {
+            clearTimeout(timer);
+            resolve(img);
+          };
+          img.onerror = () => {
+            clearTimeout(timer);
+            resolve(null);
+          };
+          img.src = url;
+        }
       });
     }
 
@@ -1145,18 +1202,19 @@
         return;
       }
       img.dataset.qrRetried = '1';
-      try {
-        if (
-          window.AndroidPrinterBridge &&
-          typeof window.AndroidPrinterBridge.fetchImageBase64 === 'function'
-        ) {
-          const b64 = window.AndroidPrinterBridge.fetchImageBase64(img.dataset.qrUrl);
-          if (b64 && b64.startsWith('data:image/')) {
+      if (
+        window.AndroidPrinterBridge &&
+        typeof window.AndroidPrinterBridge.fetchImageBase64 === 'function'
+      ) {
+        callNativeAsync('fetchImageBase64', [img.dataset.qrUrl], 7000).then((b64) => {
+          if (b64 && String(b64).startsWith('data:image/')) {
             img.src = b64;
-            return;
+          } else {
+            img.style.display = 'none';
           }
-        }
-      } catch (e) {}
+        });
+        return;
+      }
       img.style.display = 'none';
     }
 
@@ -1587,6 +1645,52 @@
       };
     }
 
+    // Gọi cầu nối Android KHÔNG chặn giao diện: dùng bản ...Async (Java chạy nền rồi gọi lại window.__onNativeResult).
+    // Nếu APK cũ chưa có bản Async thì quay về gọi đồng bộ như trước.
+    const __nativeCallbacks = {};
+    let __nativeSeq = 0;
+    window.__onNativeResult = function (callbackId, result) {
+      const cb = __nativeCallbacks[callbackId];
+      if (cb) {
+        delete __nativeCallbacks[callbackId];
+        cb(result);
+      }
+    };
+
+    function callNativeAsync(method, args, timeoutMs) {
+      const bridge = window.AndroidPrinterBridge;
+      if (!bridge) return Promise.resolve(null);
+      const asyncName = method + 'Async';
+      if (typeof bridge[asyncName] === 'function') {
+        return new Promise((resolve) => {
+          const id = 'cb' + ++__nativeSeq;
+          const timer = setTimeout(() => {
+            delete __nativeCallbacks[id];
+            resolve('ERROR: Hết thời gian chờ phản hồi');
+          }, timeoutMs || 20000);
+          __nativeCallbacks[id] = (r) => {
+            clearTimeout(timer);
+            resolve(r);
+          };
+          try {
+            bridge[asyncName](...args, id);
+          } catch (e) {
+            clearTimeout(timer);
+            delete __nativeCallbacks[id];
+            resolve('ERROR: ' + e);
+          }
+        });
+      }
+      if (typeof bridge[method] === 'function') {
+        try {
+          return Promise.resolve(bridge[method](...args));
+        } catch (e) {
+          return Promise.resolve('ERROR: ' + e);
+        }
+      }
+      return Promise.resolve(null);
+    }
+
     function isRunningInsideAndroidApk() {
       return Boolean(
         window.AndroidPrinterBridge &&
@@ -1637,10 +1741,10 @@
       // CÁCH 1: Đang chạy trong ứng dụng Android APK (Có Native TCP Socket Bridge thật kết nối thẳng tới IP:9100)
       if (isRunningInsideAndroidApk() && (mode === 'AUTO' || mode === 'APK_SOCKET')) {
         try {
-          const resultStr = window.AndroidPrinterBridge.printRawEscPos(
-            cleanIp,
-            cleanPort,
-            base64Data
+          const resultStr = await callNativeAsync(
+            'printRawEscPos',
+            [cleanIp, cleanPort, base64Data],
+            20000
           );
           if (resultStr === 'OK' || String(resultStr).startsWith('OK')) {
             return { ok: true, method: 'APK_SOCKET', detail: `${cleanIp}:${cleanPort}` };
@@ -1712,7 +1816,12 @@
       },
 
       updateBillingMonth(val) {
-        state.settings.billingMonth = val;
+        const norm = normalizeBillingMonth(val);
+        if (!norm) {
+          showToast('Kỳ thu không hợp lệ! Hãy nhập theo dạng Tháng/Năm, VD: 10/2026', 'error');
+          return;
+        }
+        state.settings.billingMonth = norm;
         saveData();
         renderApp();
       },
@@ -1732,6 +1841,11 @@
         state.roomFilterZone = 'ALL';
         state.roomFilterStatus = 'ALL';
         state.roomSortBy = 'default';
+        renderApp();
+      },
+
+      toggleRoomFilters() {
+        state.roomFiltersOpen = !state.roomFiltersOpen;
         renderApp();
       },
 
@@ -2226,35 +2340,77 @@
       // Chốt sang kỳ tháng mới cho tất cả các phòng
       rolloverAllRoomsToNewMonth() {
         if (state.rooms.length === 0) return;
+
+        const curMonth = normalizeBillingMonth(state.settings.billingMonth);
+        const nextMonth = getNextBillingMonth(curMonth);
+        if (!curMonth || !nextMonth) {
+          showToast('Kỳ thu hiện tại không hợp lệ! Hãy sửa lại theo dạng Tháng/Năm (VD: 10/2026).', 'error');
+          return;
+        }
+
+        // Không cho chốt khi còn phòng nhập sai chỉ số (mới < cũ) để tránh mất số liệu tháng
+        const badRooms = state.rooms.filter((r) => {
+          const b = calculateRoomBill(r);
+          return b.electricWarning || b.waterWarning;
+        });
+        if (badRooms.length > 0) {
+          showToast(
+            `Chưa chốt được: ${badRooms.map((r) => r.name).join(', ')} có chỉ số Mới nhỏ hơn Cũ. Hãy sửa lại trước.`,
+            'error'
+          );
+          return;
+        }
+
+        const unpaidRooms = state.rooms.filter((r) => r.status !== 'PAID');
+        const unpaidTotal = unpaidRooms.reduce((s, r) => s + calculateRoomBill(r).grandTotal, 0);
+
         state.confirmModal = {
-          title: 'Sang kỳ thu tiền tháng mới?',
+          title: `Chốt kỳ ${curMonth} → sang kỳ ${nextMonth}?`,
           message:
-            'Hệ thống sẽ tự động lưu các hóa đơn kỳ hiện tại vào Lịch sử, lấy Chỉ số Điện/Nước MỚI chuyển thành Chỉ số CŨ cho tháng tiếp theo, xoá trống các khoản phí phát sinh 1 lần (tạm trú, sửa điện) và đặt trạng thái các phòng về Chưa thu.',
+            `Hệ thống sẽ lưu hoá đơn kỳ ${curMonth} của tất cả phòng vào Lịch sử, chuyển Chỉ số Điện/Nước MỚI thành Chỉ số CŨ, xoá các khoản phí phát sinh 1 lần và chuyển sang kỳ ${nextMonth}.` +
+            (unpaidRooms.length > 0
+              ? ` ${unpaidRooms.length} phòng CHƯA THU (tổng ${formatVND(unpaidTotal)}) sẽ được cộng vào mục Nợ cũ của kỳ ${nextMonth}.`
+              : ' Tất cả phòng đã thu đủ tiền.'),
           confirmText: 'Chốt Sang Tháng Mới',
           danger: false,
           onConfirm: () => {
-            state.rooms.forEach((r) => {
-              const exists = state.invoices.some(
-                (i) => i.roomId === r.id && i.month === state.settings.billingMonth
-              );
-              if (!exists) {
-                state.invoices.unshift(buildInvoiceObjectFromRoom(r));
-              }
-            });
+            state.settings.billingMonth = curMonth;
 
             state.rooms.forEach((r) => {
+              const bill = calculateRoomBill(r);
+
+              // Lưu (hoặc cập nhật) hoá đơn kỳ hiện tại theo số liệu mới nhất
+              const newInv = buildInvoiceObjectFromRoom(r);
+              const idx = state.invoices.findIndex(
+                (i) => i.roomId === r.id && i.month === curMonth
+              );
+              if (idx !== -1) {
+                newInv.id = state.invoices[idx].id;
+                state.invoices[idx] = newInv;
+              } else {
+                state.invoices.unshift(newInv);
+              }
+
+              // Phòng chưa thu: toàn bộ số tiền kỳ này (đã gồm nợ cũ) trở thành Nợ cũ của kỳ sau
+              r.previousDebt = r.status === 'PAID' ? 0 : bill.grandTotal;
+
               r.oldElectric = Number(r.newElectric) || r.oldElectric;
               if (r.waterMode === 'meter') {
                 r.oldWater = Number(r.newWater) || r.oldWater;
               }
               r.electricRollover = false;
               r.extraFees = [];
-              r.previousDebt = 0;
               r.status = 'UNPAID';
             });
+
+            state.settings.billingMonth = nextMonth;
             state.confirmModal = null;
             saveData();
-            showToast('Đã chuyển chỉ số cũ và sang kỳ tháng mới thành công!');
+            showToast(
+              unpaidRooms.length > 0
+                ? `Đã sang kỳ ${nextMonth}. Đã chuyển nợ ${formatVND(unpaidTotal)} của ${unpaidRooms.length} phòng chưa thu.`
+                : `Đã chốt kỳ ${curMonth} và sang kỳ ${nextMonth} thành công!`
+            );
           }
         };
         renderApp();
@@ -2319,6 +2475,7 @@
           invoices: state.invoices
         };
         const jsonString = JSON.stringify(payload, null, 2);
+        markBackupDone();
 
         // 1. Nếu đang chạy trong ứng dụng Android APK -> Gọi Native File Saver / Share của Android
         if (
@@ -2398,25 +2555,14 @@
       },
 
       processImportedJsonString(rawText) {
+        let data;
         try {
-          const cleaned = String(rawText || '').trim();
-          const data = JSON.parse(cleaned);
-          if (!Array.isArray(data.rooms)) {
-            showToast('File sao lưu không đúng cấu trúc danh sách phòng!', 'error');
-            return false;
-          }
-          state.rooms = data.rooms;
-          if (Array.isArray(data.invoices)) state.invoices = data.invoices;
-          if (data.settings) state.settings = { ...DEFAULT_SETTINGS, ...data.settings };
-          syncSelectedRoomId();
-          saveData();
-          renderApp();
-          showToast(`✅ Đã khôi phục thành công ${state.rooms.length} phòng và ${state.invoices.length} hoá đơn!`);
-          return true;
+          data = JSON.parse(String(rawText || '').trim());
         } catch (err) {
           showToast('❌ File sao lưu không hợp lệ hoặc bị lỗi định dạng JSON!', 'error');
           return false;
         }
+        return requestApplyBackupData(data, 'file sao lưu');
       },
 
       importBackupJson(event) {
@@ -2451,17 +2597,15 @@
           showToast('Vui lòng dán mã dữ liệu vào ô trước!', 'error');
           return;
         }
+        let parsed;
         try {
-          const parsed = JSON.parse(inputEl.value.trim());
-          if (!Array.isArray(parsed.rooms)) throw new Error('Invalid');
-          state.rooms = parsed.rooms;
-          if (Array.isArray(parsed.invoices)) state.invoices = parsed.invoices;
-          if (parsed.settings) state.settings = { ...DEFAULT_SETTINGS, ...parsed.settings };
-          syncSelectedRoomId();
-          saveData();
-          showToast('Đã đồng bộ dữ liệu phòng trọ thành công!');
+          parsed = JSON.parse(inputEl.value.trim());
         } catch (e) {
           showToast('Mã dữ liệu không đúng định dạng JSON!', 'error');
+          return;
+        }
+        if (requestApplyBackupData(parsed, 'mã đồng bộ')) {
+          inputEl.value = '';
         }
       },
 
@@ -2572,7 +2716,12 @@
           state.settings.printerMode !== 'RAWBT_APP' &&
           state.settings.printerMode !== 'SYSTEM_PRINT'
         ) {
-          const checkRes = window.AndroidPrinterBridge.testConnection(ip, parseInt(port, 10) || 9100);
+          showToast(`🔌 Đang kiểm tra kết nối máy in ${ip}:${port}...`);
+          const checkRes = await callNativeAsync(
+            'testConnection',
+            [ip, parseInt(port, 10) || 9100],
+            6000
+          );
           if (checkRes !== 'OK' && !String(checkRes).startsWith('OK')) {
             showToast(`❌ Không kết nối được máy in ${ip}:${port} (${checkRes})`, 'error');
             return;
@@ -2712,6 +2861,157 @@
       }
     };
 
+    // Kiểm tra & làm sạch dữ liệu sao lưu trước khi khôi phục. Trả về { ok, rooms, invoices, settings } hoặc { ok:false, error }
+    function validateBackupData(data) {
+      if (!data || typeof data !== 'object' || Array.isArray(data)) {
+        return { ok: false, error: 'Dữ liệu không đúng cấu trúc sao lưu của app.' };
+      }
+      if (!Array.isArray(data.rooms)) {
+        return { ok: false, error: 'Không tìm thấy danh sách phòng trong dữ liệu.' };
+      }
+      const numFields = [
+        'baseRent', 'standardOccupants', 'currentOccupants', 'extraPersonFee',
+        'electricPrice', 'oldElectric', 'newElectric', 'waterPrice', 'oldWater',
+        'newWater', 'trashFee', 'previousDebt'
+      ];
+      const seenIds = new Set();
+      const rooms = [];
+      for (let i = 0; i < data.rooms.length; i++) {
+        const r = data.rooms[i];
+        if (!r || typeof r !== 'object' || r.id === undefined || r.id === null || r.id === '') {
+          return { ok: false, error: `Phòng thứ ${i + 1} thiếu mã phòng (id).` };
+        }
+        const id = String(r.id);
+        if (seenIds.has(id)) {
+          return { ok: false, error: `Mã phòng "${id}" bị trùng trong dữ liệu.` };
+        }
+        seenIds.add(id);
+        const clean = { ...r, id, name: String(r.name || id) };
+        numFields.forEach((f) => {
+          if (clean[f] !== undefined) clean[f] = Number(clean[f]) || 0;
+        });
+        clean.extraFees = Array.isArray(r.extraFees) ? r.extraFees.filter((x) => x && typeof x === 'object') : [];
+        clean.status = r.status === 'PAID' ? 'PAID' : 'UNPAID';
+        rooms.push(clean);
+      }
+
+      let invoices = null;
+      if (data.invoices !== undefined) {
+        if (!Array.isArray(data.invoices)) {
+          return { ok: false, error: 'Danh sách hoá đơn trong dữ liệu bị lỗi.' };
+        }
+        invoices = data.invoices
+          .filter((inv) => inv && typeof inv === 'object' && inv.roomId !== undefined && inv.month)
+          .map((inv) => ({ ...inv, roomId: String(inv.roomId), grandTotal: Number(inv.grandTotal) || 0 }));
+      }
+
+      let settings = null;
+      if (data.settings !== undefined) {
+        if (!data.settings || typeof data.settings !== 'object' || Array.isArray(data.settings)) {
+          return { ok: false, error: 'Phần cài đặt trong dữ liệu bị lỗi.' };
+        }
+        settings = data.settings;
+      }
+      return { ok: true, rooms, invoices, settings };
+    }
+
+    // Hỏi xác nhận rồi mới ghi đè toàn bộ dữ liệu hiện tại bằng dữ liệu khôi phục
+    function requestApplyBackupData(data, sourceLabel) {
+      const v = validateBackupData(data);
+      if (!v.ok) {
+        showToast('❌ Không khôi phục được: ' + v.error, 'error');
+        return false;
+      }
+      const exportedAt = data.exportedAt ? new Date(data.exportedAt) : null;
+      const dateText =
+        exportedAt && !isNaN(exportedAt.getTime())
+          ? ` (sao lưu lúc ${exportedAt.toLocaleString('vi-VN')})`
+          : '';
+      state.confirmModal = {
+        title: 'Ghi đè dữ liệu hiện tại?',
+        message:
+          `Dữ liệu từ ${sourceLabel}${dateText} có ${v.rooms.length} phòng` +
+          (v.invoices ? ` và ${v.invoices.length} hoá đơn` : '') +
+          `. Toàn bộ dữ liệu đang có trên máy này (${state.rooms.length} phòng, ${state.invoices.length} hoá đơn) sẽ bị THAY THẾ và không lấy lại được. Nên bấm Huỷ và Xuất file sao lưu dữ liệu hiện tại trước nếu chưa chắc chắn.`,
+        confirmText: 'Khôi Phục',
+        danger: true,
+        onConfirm: () => {
+          state.rooms = v.rooms;
+          if (v.invoices) state.invoices = v.invoices;
+          if (v.settings) state.settings = { ...DEFAULT_SETTINGS, ...v.settings };
+          normalizeLoadedMonths();
+          syncSelectedRoomId();
+          state.confirmModal = null;
+          saveData();
+          markBackupDone();
+          showToast(`✅ Đã khôi phục thành công ${state.rooms.length} phòng và ${state.invoices.length} hoá đơn!`);
+        }
+      };
+      renderApp();
+      return true;
+    }
+
+    // ============================================================================
+    // NHẮC SAO LƯU ĐỊNH KỲ (dữ liệu chỉ nằm trên máy, gỡ app / xoá dữ liệu trình duyệt là mất)
+    // ============================================================================
+    const STORAGE_KEY_LAST_BACKUP = 'nhatro_last_backup_at_v1';
+    const STORAGE_KEY_BACKUP_SNOOZE = 'nhatro_backup_snooze_until_v1';
+    const BACKUP_REMIND_DAYS = 7;
+
+    function markBackupDone() {
+      try {
+        localStorage.setItem(STORAGE_KEY_LAST_BACKUP, String(Date.now()));
+      } catch (e) {}
+    }
+
+    function getDaysSinceLastBackup() {
+      try {
+        const t = Number(localStorage.getItem(STORAGE_KEY_LAST_BACKUP));
+        if (!t) return null;
+        return Math.floor((Date.now() - t) / 86400000);
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function shouldShowBackupReminder() {
+      if (!state.rooms || state.rooms.length === 0) return false;
+      try {
+        const snooze = Number(localStorage.getItem(STORAGE_KEY_BACKUP_SNOOZE));
+        if (snooze && Date.now() < snooze) return false;
+      } catch (e) {}
+      const days = getDaysSinceLastBackup();
+      return days === null || days >= BACKUP_REMIND_DAYS;
+    }
+
+    window.snoozeBackupReminder = function () {
+      try {
+        localStorage.setItem(STORAGE_KEY_BACKUP_SNOOZE, String(Date.now() + 86400000));
+      } catch (e) {}
+      renderApp();
+    };
+
+    function renderBackupReminder() {
+      if (!shouldShowBackupReminder()) return '';
+      const days = getDaysSinceLastBackup();
+      const text =
+        days === null
+          ? 'Bạn chưa sao lưu dữ liệu lần nào. Dữ liệu chỉ lưu trên máy này, đổi máy hoặc gỡ app là mất hết.'
+          : `Đã ${days} ngày chưa sao lưu dữ liệu. Nên xuất file sao lưu mỗi tuần để phòng mất máy.`;
+      return `
+        <div class="bg-amber-50 border border-amber-300 rounded-2xl p-3 flex items-start gap-2.5">
+          <div class="text-lg leading-none">💾</div>
+          <div class="flex-1 min-w-0">
+            <p class="text-xs text-amber-900 font-semibold leading-relaxed">${escapeHtml(text)}</p>
+            <div class="flex gap-2 mt-2">
+              <button onclick="appActions.exportBackupJson()" class="px-3 py-1.5 rounded-lg bg-amber-500 text-white text-xs font-extrabold">Sao lưu ngay</button>
+              <button onclick="snoozeBackupReminder()" class="px-3 py-1.5 rounded-lg bg-white border border-amber-300 text-amber-800 text-xs font-bold">Để mai</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
     // Hàm callback toàn cục để Android APK trả nội dung file .json khi người dùng chọn file từ bộ nhớ máy
     window.onAndroidBackupFileLoaded = function (base64OrText, isBase64) {
       try {
@@ -2846,6 +3146,8 @@
                   <span>Kỳ:</span>
                   <input
                     type="text"
+                    inputmode="numeric"
+                    placeholder="MM/YYYY"
                     value="${escapeHtml(state.settings.billingMonth)}"
                     onchange="appActions.updateBillingMonth(this.value)"
                     class="w-16 bg-white/20 text-white font-bold text-center rounded px-1 py-0.5 focus:outline-none focus:bg-white/30"
@@ -2886,6 +3188,7 @@
 
         <!-- NỘI DUNG TỪNG TAB -->
         <main class="flex-1 overflow-y-auto pb-24 px-3.5 md:px-6 pt-3.5 md:pt-5 space-y-3.5 md:space-y-4 no-print">
+          ${state.activeTab === 'rooms' || state.activeTab === 'settings' ? renderBackupReminder() : ''}
           ${
             state.activeTab === 'rooms'
               ? renderRoomsTab(totalExpected, totalPaid, totalUnpaid, unpaidCount)
@@ -3058,6 +3361,11 @@
         (r) => r.floorLevel === 'ground' || r.floorLevel === 'upstairs'
       );
       const hasAnyClassification = availableZones.length > 0 || hasAnyFloor;
+      const activeExtraFilterCount =
+        (state.roomFilterFloor !== 'ALL' ? 1 : 0) +
+        (state.roomFilterZone !== 'ALL' ? 1 : 0) +
+        (state.roomFilterType !== 'ALL' ? 1 : 0) +
+        (state.roomSortBy !== 'default' ? 1 : 0);
 
       // Lọc và sắp xếp danh sách phòng theo bộ lọc tìm kiếm, dãy phòng, trên lầu & trệt
       const filteredRooms = state.rooms
@@ -3452,6 +3760,42 @@
             }
           </div>
 
+          <div class="flex items-center justify-between gap-1.5 text-[11px]">
+            <div class="flex items-center gap-1">
+              ${[
+                { id: 'ALL', label: 'Mọi TT' },
+                { id: 'UNPAID', label: 'Chưa Thu' },
+                { id: 'PAID', label: 'Đã Thu' }
+              ]
+                .map(
+                  (st) => `
+                <button
+                  onclick="appActions.setRoomFilterStatus('${st.id}')"
+                  class="px-2 py-1 rounded-lg font-bold transition ${
+                    state.roomFilterStatus === st.id
+                      ? 'bg-slate-900 text-white'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }"
+                >${st.label}</button>
+              `
+                )
+                .join('')}
+            </div>
+            <button
+              onclick="appActions.toggleRoomFilters()"
+              class="px-2.5 py-1 rounded-lg font-bold transition flex items-center gap-1 ${
+                state.roomFiltersOpen || activeExtraFilterCount > 0
+                  ? 'bg-teal-50 text-teal-800 border border-teal-300'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-transparent'
+              }"
+            >Lọc thêm${activeExtraFilterCount > 0 ? ` (${activeExtraFilterCount})` : ''} ${
+              state.roomFiltersOpen ? '▴' : '▾'
+            }</button>
+          </div>
+
+          ${
+            state.roomFiltersOpen
+              ? `<div class="space-y-2 pt-2 border-t border-slate-100">
           ${
             hasAnyClassification
               ? `<!-- Phân loại theo Tầng (Trệt / Trên lầu) và Dãy phòng (chỉ hiện khi có phân loại) -->
@@ -3498,7 +3842,7 @@
                             .map(
                               (z) => `
                             <button
-                              onclick="appActions.setRoomFilterZone('${escapeHtml(z)}')"
+                              onclick="appActions.setRoomFilterZone(${escapeHtml(JSON.stringify(z))})"
                               class="px-2.5 py-1 rounded-lg font-bold transition ${
                                 state.roomFilterZone === z
                                   ? 'bg-teal-700 text-white shadow-2xs'
@@ -3515,9 +3859,7 @@
               : ''
           }
 
-          <div class="flex items-center justify-between gap-1.5 flex-wrap text-[11px] ${
-            hasAnyClassification ? 'pt-1 border-t border-slate-100' : ''
-          }">
+          <div class="flex items-center justify-between gap-1.5 flex-wrap text-[11px]">
             <div class="flex items-center gap-1">
               ${[
                 { id: 'ALL', label: 'Tất Cả Loại' },
@@ -3538,37 +3880,6 @@
                 )
                 .join('')}
             </div>
-
-            <div class="flex items-center gap-1">
-              ${[
-                { id: 'ALL', label: 'Mọi TT' },
-                { id: 'UNPAID', label: 'Chưa Thu' },
-                { id: 'PAID', label: 'Đã Thu' }
-              ]
-                .map(
-                  (st) => `
-                <button
-                  onclick="appActions.setRoomFilterStatus('${st.id}')"
-                  class="px-2 py-1 rounded-lg font-bold transition ${
-                    state.roomFilterStatus === st.id
-                      ? 'bg-slate-900 text-white'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  }"
-                >${st.label}</button>
-              `
-                )
-                .join('')}
-            </div>
-          </div>
-
-          <div class="flex items-center justify-between pt-1 border-t border-slate-100 text-[11px] text-slate-500">
-            <span>Hiển thị: <b class="text-slate-800">${filteredRooms.length}/${
-        state.rooms.length
-      }</b> phòng ${
-        hasAnyClassification
-          ? '<span class="text-teal-700 font-semibold">(Đang chia nhóm theo Dãy / Lầu / Trệt)</span>'
-          : ''
-      }</span>
             <div class="flex items-center gap-1">
               <span>Sắp xếp:</span>
               <select
@@ -3586,6 +3897,19 @@
                 }>Tiền thấp → cao</option>
               </select>
             </div>
+          </div>
+        </div>`
+              : ''
+          }
+
+          <div class="flex items-center justify-between pt-1 border-t border-slate-100 text-[11px] text-slate-500">
+            <span>Hiển thị: <b class="text-slate-800">${filteredRooms.length}/${
+        state.rooms.length
+      }</b> phòng ${
+        hasAnyClassification
+          ? '<span class="text-teal-700 font-semibold">(Đang chia nhóm theo Dãy / Lầu / Trệt)</span>'
+          : ''
+      }</span>
           </div>
         </div>
 
@@ -3758,6 +4082,8 @@
               </label>
               <input
                 type="text"
+                inputmode="numeric"
+                placeholder="MM/YYYY"
                 value="${escapeHtml(state.settings.billingMonth)}"
                 onchange="appActions.updateBillingMonth(this.value)"
                 class="w-full bg-slate-50 border border-slate-300 rounded-xl px-2.5 py-2.5 text-sm font-extrabold text-center text-slate-800"
@@ -4555,543 +4881,388 @@
         { label: '📌 Công nợ / Dư kỳ trước', amount: sumDebt, color: 'bg-rose-500' }
       ];
 
-      // Chi tiết từng khoản của phòng đang được chọn
+      // ---------- Số liệu phụ cho giao diện mới ----------
       const selectedRoomBill = selectedRoomObj ? calculateRoomBill(selectedRoomObj) : null;
       const selectedRoomHistory = selectedRoomObj
-        ? state.invoices.filter((inv) => inv.roomId === selectedRoomObj.id)
+        ? state.invoices
+            .filter((inv) => inv.roomId === selectedRoomObj.id)
+            .sort((a, b) => monthSortKey(b.month) - monthSortKey(a.month))
         : [];
 
-      return `
-        <!-- BỘ CHỌN XEM DOANH THU CHI TIẾT TỪNG PHÒNG -->
-        <div class="bg-white rounded-2xl p-3.5 border border-teal-200 shadow-xs space-y-3">
-          <div class="flex items-center justify-between gap-2 flex-wrap">
-            <div>
-              <span class="text-xs font-extrabold text-slate-900 block">🔍 Chọn phòng để xem doanh thu chi tiết:</span>
-              <span class="text-[11px] text-slate-500">Xem tổng thể toàn nhà trọ hoặc bấm chọn từng phòng cụ thể</span>
-            </div>
-            <select
-              onchange="appActions.setAnalyticsRoom(this.value)"
-              class="bg-teal-50 border border-teal-300 text-teal-950 text-xs font-extrabold rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500"
-            >
-              <option value="ALL" ${
-                state.selectedAnalyticsRoomId === 'ALL' ? 'selected' : ''
-              }>🏠 Tất cả phòng (${state.rooms.length} phòng)</option>
-              ${state.rooms
-                .map(
-                  (r) => `
-                <option value="${r.id}" ${
-                    state.selectedAnalyticsRoomId === r.id ? 'selected' : ''
-                  }>
-                  ${escapeHtml(r.name)}${
-                    getRoomCategorySummary(r)
-                      ? ` • ${escapeHtml(getRoomCategorySummary(r))}`
-                      : ''
-                  } - ${formatVND(calculateRoomBill(r).grandTotal)}
-                </option>
-              `
-                )
-                .join('')}
-            </select>
-          </div>
+      const curMonth = state.settings.billingMonth;
+      const viewMonth =
+        state.analyticsPeriod === 'CURRENT'
+          ? curMonth
+          : state.analyticsPeriod === 'ALL_HISTORY'
+          ? null
+          : state.analyticsPeriod;
 
-          <!-- Dãy nút bấm chọn nhanh từng phòng -->
-          <div class="flex gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
-            <button
-              onclick="appActions.setAnalyticsRoom('ALL')"
-              class="px-3 py-1.5 rounded-xl text-xs font-extrabold whitespace-nowrap transition ${
-                state.selectedAnalyticsRoomId === 'ALL'
-                  ? 'bg-slate-900 text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }"
-            >
-              Tất Cả (${state.rooms.length})
-            </button>
-            ${state.rooms
+      // Tổng theo từng kỳ (kỳ đang thu lấy số liệu sống từ danh sách phòng)
+      const scopeRooms = selectedRoomObj ? [selectedRoomObj] : state.rooms;
+      const liveCurrent = scopeRooms.reduce(
+        (acc, r) => {
+          const g = calculateRoomBill(r).grandTotal;
+          acc.total += g;
+          if (r.status === 'PAID') acc.paid += g;
+          return acc;
+        },
+        { month: curMonth, total: 0, paid: 0 }
+      );
+      const monthMap = {};
+      monthlyList.forEach((m) => {
+        monthMap[m.month] = { month: m.month, total: m.total, paid: m.paid };
+      });
+      monthMap[curMonth] = liveCurrent;
+      const chartMonths = Object.values(monthMap)
+        .sort((a, b) => monthSortKey(a.month) - monthSortKey(b.month))
+        .slice(-6);
+      const chartMax = Math.max(1, ...chartMonths.map((m) => m.total));
+
+      // So với kỳ trước
+      let deltaHtml = '';
+      if (viewMonth) {
+        const prevKey = monthSortKey(viewMonth) - 1;
+        const prev = Object.values(monthMap).find((m) => monthSortKey(m.month) === prevKey);
+        if (prev && prev.total > 0) {
+          const diff = totalExpected - prev.total;
+          const pct = Math.round((diff / prev.total) * 100);
+          const up = diff >= 0;
+          deltaHtml = `<span class="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full ${
+            up ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
+          }">${up ? '▲' : '▼'} ${Math.abs(pct)}% <span class="font-medium opacity-80">so với ${escapeHtml(
+            prev.month
+          )}</span></span>`;
+        }
+      }
+
+      const fmtShort = (n) => {
+        const v = Number(n) || 0;
+        if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(1).replace('.0', '').replace('.', ',') + 'tr';
+        if (Math.abs(v) >= 1e3) return Math.round(v / 1e3) + 'k';
+        return String(Math.round(v));
+      };
+
+      const periodLabel =
+        state.analyticsPeriod === 'CURRENT'
+          ? `Kỳ ${curMonth} (đang thu)`
+          : state.analyticsPeriod === 'ALL_HISTORY'
+          ? 'Toàn bộ lịch sử'
+          : `Kỳ ${state.analyticsPeriod}`;
+
+      const paidCount = roomRanking.filter((r) => r.status === 'PAID').length;
+      const breakdownColors = {
+        'bg-teal-500': '#14b8a6',
+        'bg-amber-500': '#f59e0b',
+        'bg-sky-500': '#0ea5e9',
+        'bg-indigo-500': '#6366f1',
+        'bg-purple-500': '#a855f7',
+        'bg-rose-500': '#f43f5e'
+      };
+      const shortLabels = ['Tiền phòng', 'Điện', 'Nước', 'Phụ thu thêm người', 'Rác và phí khác', 'Nợ cũ'];
+      const breakdownShown = breakdownItems
+        .map((b, i) => ({ ...b, label: shortLabels[i] || b.label }))
+        .filter((b) => b.amount !== 0);
+      const breakdownTotal = breakdownShown.reduce((s, b) => s + Math.max(0, b.amount), 0) || 1;
+
+      const periodChips = [
+        { id: 'CURRENT', label: `Kỳ ${curMonth}` },
+        ...historyMonths
+          .filter((m) => m !== curMonth)
+          .sort((a, b) => monthSortKey(b) - monthSortKey(a))
+          .map((m) => ({ id: m, label: `Kỳ ${m}` })),
+        { id: 'ALL_HISTORY', label: 'Tất cả' }
+      ];
+
+      const card = 'bg-white rounded-2xl border border-slate-200/80 p-4';
+      const sectionTitle = (t, extra = '') =>
+        `<div class="flex items-center justify-between mb-3"><h3 class="text-sm font-bold text-slate-900">${t}</h3>${extra}</div>`;
+
+      // ---------- 1. Bộ lọc kỳ + phòng ----------
+      const filtersHtml = `
+        <div class="space-y-2">
+          <div class="flex gap-1.5 overflow-x-auto no-scrollbar -mx-0.5 px-0.5">
+            ${periodChips
               .map(
-                (r) => `
+                (p) => `
               <button
-                onclick="appActions.setAnalyticsRoom('${r.id}')"
-                class="px-3 py-1.5 rounded-xl text-xs font-extrabold whitespace-nowrap transition flex items-center gap-1 ${
-                  state.selectedAnalyticsRoomId === r.id
-                    ? 'bg-teal-600 text-white shadow-xs'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                onclick="appActions.setAnalyticsPeriod(${escapeHtml(JSON.stringify(p.id))})"
+                class="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
+                  state.analyticsPeriod === p.id
+                    ? 'bg-teal-700 border-teal-700 text-white'
+                    : 'bg-white border-slate-200 text-slate-600'
                 }"
-              >
-                <span>${escapeHtml(r.name)}</span>
-                ${
-                  getRoomCategorySummary(r)
-                    ? `<span class="text-[10px] opacity-80">(${escapeHtml(
-                        getRoomCategorySummary(r)
-                      )})</span>`
-                    : ''
-                }
-              </button>
-            `
+              >${escapeHtml(p.label)}</button>`
               )
               .join('')}
           </div>
+          <select
+            onchange="appActions.setAnalyticsRoom(this.value)"
+            class="w-full bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
+          >
+            <option value="ALL" ${state.selectedAnalyticsRoomId === 'ALL' ? 'selected' : ''}>Tất cả phòng (${
+        state.rooms.length
+      })</option>
+            ${state.rooms
+              .map(
+                (r) =>
+                  `<option value="${escapeHtml(r.id)}" ${
+                    state.selectedAnalyticsRoomId === r.id ? 'selected' : ''
+                  }>${escapeHtml(r.name)}${r.tenantName ? ' · ' + escapeHtml(r.tenantName) : ''}</option>`
+              )
+              .join('')}
+          </select>
+        </div>`;
 
-          <!-- Bộ chọn kỳ xem báo cáo doanh số -->
-          <div class="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
-            <span class="text-[11px] font-bold text-slate-500">Kỳ thống kê: <b class="text-teal-700">${escapeHtml(
-              statsTitle
-            )}</b></span>
-            <div class="flex gap-1.5 overflow-x-auto no-scrollbar">
-              <button
-                onclick="appActions.setAnalyticsPeriod('CURRENT')"
-                class="px-2.5 py-1 rounded-lg text-[11px] font-extrabold whitespace-nowrap transition ${
-                  state.analyticsPeriod === 'CURRENT'
-                    ? 'bg-teal-600 text-white'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }"
-              >
-                Kỳ Hiện Tại (${escapeHtml(state.settings.billingMonth)})
-              </button>
-              <button
-                onclick="appActions.setAnalyticsPeriod('ALL_HISTORY')"
-                class="px-2.5 py-1 rounded-lg text-[11px] font-extrabold whitespace-nowrap transition ${
-                  state.analyticsPeriod === 'ALL_HISTORY'
-                    ? 'bg-teal-600 text-white'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }"
-              >
-                Lịch Sử Tất Cả Kỳ
-              </button>
-              ${historyMonths
-                .map(
-                  (m) => `
-                <button
-                  onclick="appActions.setAnalyticsPeriod('${escapeHtml(m)}')"
-                  class="px-2.5 py-1 rounded-lg text-[11px] font-extrabold whitespace-nowrap transition ${
-                    state.analyticsPeriod === m
-                      ? 'bg-teal-600 text-white'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  }"
-                >
-                  T${escapeHtml(m)}
-                </button>
-              `
-                )
-                .join('')}
-            </div>
-          </div>
-        </div>
-
-        <!-- BẢNG BÓC TÁCH DOANH THU CHI TIẾT CỦA PHÒNG ĐANG CHỌN -->
-        ${
-          selectedRoomObj && selectedRoomBill
-            ? `<div class="bg-white rounded-2xl p-4 border-2 border-teal-500 shadow-md space-y-3.5 text-xs">
-                <div class="flex items-start justify-between gap-2 border-b border-slate-100 pb-3">
-                  <div>
-                    <div class="flex items-center gap-1.5 flex-wrap">
-                      <span class="bg-teal-600 text-white text-[10px] font-extrabold px-2 py-0.5 rounded-md uppercase">
-                        Chi tiết doanh thu phòng
-                      </span>
-                      ${
-                        getRoomCategorySummary(selectedRoomObj)
-                          ? `<span class="bg-slate-100 text-slate-700 text-[10px] font-bold px-2 py-0.5 rounded-md">
-                              📍 ${escapeHtml(getRoomCategorySummary(selectedRoomObj))}
-                            </span>`
-                          : ''
-                      }
-                    </div>
-                    <h3 class="font-black text-base text-slate-900 mt-1">${escapeHtml(
-                      selectedRoomObj.name
-                    )}</h3>
-                    <p class="text-slate-500">
-                      👤 Khách thuê: <b>${escapeHtml(
-                        selectedRoomObj.tenantName || 'Chưa ghi tên'
-                      )}</b>
-                      ${
-                        selectedRoomObj.tenantPhone
-                          ? ` • 📞 ${escapeHtml(selectedRoomObj.tenantPhone)}`
-                          : ''
-                      }
-                    </p>
-                  </div>
-                  <div class="text-right">
-                    <span class="text-[10px] text-slate-400 font-bold block">Kỳ hiện tại (${escapeHtml(
-                      state.settings.billingMonth
-                    )})</span>
-                    <span class="font-black text-lg text-teal-700 block">${formatVND(
-                      selectedRoomBill.grandTotal
-                    )}</span>
-                    <button
-                      onclick="appActions.togglePaidStatus('${selectedRoomObj.id}')"
-                      class="mt-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold ${
-                        selectedRoomObj.status === 'PAID'
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : 'bg-amber-100 text-amber-900'
-                      }"
-                    >
-                      ${selectedRoomObj.status === 'PAID' ? '✅ Đã Thu Tiền' : '⏳ Chưa Thu Tiền'}
-                    </button>
-                  </div>
-                </div>
-
-                <!-- Bảng chi tiết từng hạng mục thu của phòng này -->
-                <div class="bg-slate-50 rounded-xl p-3 border border-slate-200/80 space-y-2">
-                  <div class="font-extrabold text-slate-800 text-xs border-b border-slate-200 pb-1.5">
-                    📋 Bảng kê chi tiết các khoản thu kỳ ${escapeHtml(state.settings.billingMonth)}:
-                  </div>
-                  <div class="flex justify-between items-center">
-                    <span class="text-slate-600">1. Tiền thuê phòng cơ bản:</span>
-                    <span class="font-extrabold text-slate-900">${formatVND(
-                      selectedRoomBill.baseRent
-                    )}</span>
-                  </div>
-                  <div class="flex justify-between items-center">
-                    <span class="text-slate-600">2. Phụ thu thêm người (${
-                      selectedRoomObj.currentOccupants
-                    }/${selectedRoomObj.standardOccupants} người):</span>
-                    <span class="font-extrabold text-indigo-700">+${formatVND(
-                      selectedRoomBill.extraPersonTotal
-                    )}</span>
-                  </div>
-                  <div class="flex justify-between items-center">
-                    <span class="text-slate-600">3. Tiền điện (${selectedRoomObj.oldElectric} → ${
-                selectedRoomObj.newElectric
-              } = ${selectedRoomBill.electricUsage} kWh × ${formatVND(
-                selectedRoomObj.electricPrice
-              )}):</span>
-                    <span class="font-extrabold text-amber-700">${formatVND(
-                      selectedRoomBill.electricTotal
-                    )}</span>
-                  </div>
-                  <div class="flex justify-between items-center">
-                    <span class="text-slate-600">4. Tiền nước (${
-                      selectedRoomObj.waterMode === 'person'
-                        ? `Khoán ${selectedRoomBill.waterUsage} người`
-                        : `${selectedRoomObj.oldWater} → ${selectedRoomObj.newWater} = ${selectedRoomBill.waterUsage} m³`
-                    } × ${formatVND(selectedRoomObj.waterPrice)}):</span>
-                    <span class="font-extrabold text-sky-700">${formatVND(
-                      selectedRoomBill.waterTotal
-                    )}</span>
-                  </div>
-                  <div class="flex justify-between items-center">
-                    <span class="text-slate-600">5. Tiền rác / vệ sinh:</span>
-                    <span class="font-extrabold text-slate-900">${formatVND(
-                      selectedRoomBill.trashFee
-                    )}</span>
-                  </div>
-                  <div class="flex justify-between items-center">
-                    <span class="text-slate-600">6. Phí phát sinh (${
-                      (selectedRoomObj.extraFees || []).length
-                    } khoản):</span>
-                    <span class="font-extrabold text-purple-700">${
-                      selectedRoomBill.extraFeesTotal >= 0 ? '+' : ''
-                    }${formatVND(selectedRoomBill.extraFeesTotal)}</span>
-                  </div>
-                  ${
-                    (selectedRoomObj.extraFees || []).length > 0
-                      ? `<div class="pl-3 space-y-1 text-[11px] text-purple-800">
-                          ${selectedRoomObj.extraFees
-                            .map(
-                              (ef) => `
-                            <div class="flex justify-between">
-                              <span>• ${escapeHtml(ef.title)}</span>
-                              <span class="font-bold">${
-                                Number(ef.amount) >= 0 ? '+' : ''
-                              }${formatVND(ef.amount)}</span>
-                            </div>
-                          `
-                            )
-                            .join('')}
-                        </div>`
-                      : ''
-                  }
-                  <div class="flex justify-between items-center">
-                    <span class="text-slate-600">7. Nợ cũ / Trừ cọc kỳ trước:</span>
-                    <span class="font-extrabold text-rose-600">${formatVND(
-                      selectedRoomBill.previousDebt
-                    )}</span>
-                  </div>
-                  <div class="pt-2 border-t border-slate-200 flex justify-between items-center text-sm">
-                    <span class="font-black text-slate-900">TỔNG DOANH THU PHÒNG KỲ NÀY:</span>
-                    <span class="font-black text-base text-teal-700">${formatVND(
-                      selectedRoomBill.grandTotal
-                    )}</span>
-                  </div>
-                </div>
-
-                <!-- Lịch sử hóa đơn các kỳ của riêng phòng này -->
-                <div class="space-y-2">
-                  <div class="font-extrabold text-slate-800">
-                    🕓 Lịch sử doanh thu các kỳ của ${escapeHtml(selectedRoomObj.name)} (${
-                selectedRoomHistory.length
-              } phiếu):
-                  </div>
-                  ${
-                    selectedRoomHistory.length === 0
-                      ? `<p class="text-[11px] text-slate-400 italic">Chưa có phiếu thu lịch sử nào được lưu cho phòng này.</p>`
-                      : `<div class="space-y-1.5">
-                          ${selectedRoomHistory
-                            .map(
-                              (h) => `
-                            <div class="flex items-center justify-between bg-slate-50 px-3 py-2 rounded-xl border border-slate-200">
-                              <div>
-                                <span class="font-extrabold text-slate-900">Kỳ tháng ${escapeHtml(
-                                  h.month
-                                )}</span>
-                                <span class="text-[11px] text-slate-500 block">Điện: ${
-                                  h.electric?.usage || 0
-                                } kWh • Nước: ${h.water?.usage || 0} ${
-                                h.water?.mode === 'person' ? 'người' : 'm³'
-                              } • Lập: ${escapeHtml(h.createdAt)}</span>
-                              </div>
-                              <div class="flex items-center gap-2">
-                                <div class="text-right">
-                                  <div class="font-black text-teal-700">${formatVND(
-                                    h.grandTotal
-                                  )}</div>
-                                  <span class="text-[10px] font-bold ${
-                                    h.status === 'PAID' ? 'text-emerald-700' : 'text-amber-700'
-                                  }">${h.status === 'PAID' ? '✅ Đã thu' : '⏳ Chưa thu'}</span>
-                                </div>
-                                <button
-                                  onclick="appActions.openExistingInvoiceReceipt('${h.id}')"
-                                  class="bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 font-bold text-[11px] px-2.5 py-1.5 rounded-lg"
-                                >Xem</button>
-                              </div>
-                            </div>
-                          `
-                            )
-                            .join('')}
-                        </div>`
-                  }
-                </div>
-
-                <div class="flex gap-2 pt-1">
-                  <button
-                    onclick="appActions.selectRoomForCalculator('${selectedRoomObj.id}')"
-                    class="flex-1 bg-slate-900 hover:bg-slate-800 text-white font-extrabold py-2.5 px-3 rounded-xl"
-                  >
-                    🧮 Chỉnh Sửa & Tính Tiền Phòng Này
-                  </button>
-                  <button
-                    onclick="appActions.saveAndOpenRoomReceipt('${selectedRoomObj.id}')"
-                    class="flex-1 bg-teal-600 hover:bg-teal-700 text-white font-extrabold py-2.5 px-3 rounded-xl"
-                  >
-                    📄 Xuất Phiếu QR Phòng Này
-                  </button>
-                </div>
-              </div>`
-            : ''
-        }
-
-        <!-- Thẻ Tổng quan Doanh số & Thực thu / Công nợ -->
-        <div class="bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-2xl p-4 shadow-lg space-y-3">
-          <div class="flex items-start justify-between">
+      // ---------- 2. Thẻ tổng ----------
+      const heroHtml = `
+        <div class="${card}">
+          <div class="flex items-start justify-between gap-2">
             <div>
-              <span class="text-[11px] uppercase tracking-wider text-teal-400 font-bold">
-                ${
-                  selectedRoomObj
-                    ? `Tổng doanh thu • ${escapeHtml(selectedRoomObj.name)}`
-                    : 'Tổng doanh thu toàn nhà trọ'
-                }
-              </span>
-              <div class="text-2xl font-black text-white mt-0.5">${formatVND(totalExpected)}</div>
-            </div>
-            <span class="bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-xs font-extrabold px-2.5 py-1 rounded-xl">
-              Đã thu ${paidRate}%
-            </span>
-          </div>
-
-          <div class="w-full h-2.5 bg-white/10 rounded-full overflow-hidden">
-            <div class="h-full bg-gradient-to-r from-teal-400 to-emerald-400 rounded-full" style="width: ${paidRate}%"></div>
-          </div>
-
-          <div class="grid grid-cols-2 gap-2.5 pt-1 text-xs">
-            <div class="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-2.5">
-              <div class="text-[11px] text-emerald-200">Thực thu (Đã đóng)</div>
-              <div class="font-black text-base text-emerald-400 mt-0.5">${formatVND(totalPaid)}</div>
-            </div>
-            <div class="bg-amber-500/10 border border-amber-500/20 rounded-xl p-2.5">
-              <div class="text-[11px] text-amber-200">Còn phải thu (Công nợ)</div>
-              <div class="font-black text-base text-amber-400 mt-0.5">${formatVND(totalUnpaid)}</div>
+              <p class="text-xs font-medium text-slate-500">Tổng phải thu · ${escapeHtml(periodLabel)}${
+        selectedRoomObj ? ' · ' + escapeHtml(selectedRoomObj.name) : ''
+      }</p>
+              <p class="text-3xl font-extrabold text-slate-900 tracking-tight mt-1">${formatVND(totalExpected)}</p>
             </div>
           </div>
-
-          <!-- Chỉ số tiêu thụ Điện - Nước - Nhân khẩu -->
-          <div class="grid grid-cols-3 gap-2 pt-2 border-t border-slate-700/80 text-center text-xs">
-            <div class="bg-white/5 rounded-xl p-2">
-              <div class="text-[10px] text-slate-400">Tổng điện tiêu thụ</div>
-              <div class="font-extrabold text-amber-300 mt-0.5">${totalKwh} kWh</div>
+          ${deltaHtml ? `<div class="mt-2">${deltaHtml}</div>` : ''}
+          <div class="mt-4 h-2.5 rounded-full bg-amber-100 overflow-hidden flex">
+            <div class="h-full bg-emerald-500 rounded-full" style="width:${paidRate}%"></div>
+          </div>
+          <div class="mt-3 grid grid-cols-2 gap-3">
+            <div>
+              <p class="flex items-center gap-1.5 text-xs text-slate-500"><span class="w-2 h-2 rounded-full bg-emerald-500"></span>Đã thu · ${paidRate}%</p>
+              <p class="text-base font-bold text-emerald-700 mt-0.5">${formatVND(totalPaid)}</p>
             </div>
-            <div class="bg-white/5 rounded-xl p-2">
-              <div class="text-[10px] text-slate-400">Tổng nước đồng hồ</div>
-              <div class="font-extrabold text-sky-300 mt-0.5">${totalWaterM3} m³</div>
-            </div>
-            <div class="bg-white/5 rounded-xl p-2">
-              <div class="text-[10px] text-slate-400">Tổng người ở</div>
-              <div class="font-extrabold text-indigo-300 mt-0.5">${totalOccupants} người</div>
+            <div>
+              <p class="flex items-center gap-1.5 text-xs text-slate-500"><span class="w-2 h-2 rounded-full bg-amber-400"></span>Còn phải thu</p>
+              <p class="text-base font-bold text-amber-700 mt-0.5">${formatVND(totalUnpaid)}</p>
             </div>
           </div>
-        </div>
+          ${
+            roomRanking.length > 0
+              ? `<p class="mt-3 pt-3 border-t border-slate-100 text-xs text-slate-500">${paidCount}/${roomRanking.length} ${
+                  state.analyticsPeriod === 'CURRENT' ? 'phòng' : 'phiếu'
+                } đã trả tiền</p>`
+              : ''
+          }
+        </div>`;
 
-        <!-- Cơ cấu nguồn thu theo hạng mục -->
-        <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs space-y-3 text-xs">
-          <h3 class="font-extrabold text-sm text-slate-900 border-b border-slate-100 pb-2">
-            🧩 Cơ cấu doanh thu theo khoản thu ${
-              selectedRoomObj ? `(${escapeHtml(selectedRoomObj.name)})` : '(Tất cả phòng)'
-            }
-          </h3>
-          <div class="space-y-2.5">
-            ${breakdownItems
-              .map((item) => {
-                const pct =
-                  totalExpected > 0
-                    ? Math.max(0, Math.min(100, Math.round((item.amount / totalExpected) * 100)))
-                    : 0;
+      // ---------- 3. Chỉ số tiêu thụ ----------
+      const statTile = (label, value, sub) => `
+        <div class="bg-white rounded-2xl border border-slate-200/80 p-3">
+          <p class="text-xs text-slate-500">${label}</p>
+          <p class="text-lg font-bold text-slate-900 mt-0.5">${value}</p>
+          <p class="text-xs text-slate-400 mt-0.5">${sub}</p>
+        </div>`;
+      const statsHtml = `
+        <div class="grid grid-cols-2 gap-3">
+          ${statTile('Điện', `${totalKwh.toLocaleString('vi-VN')} kWh`, formatVND(sumElectric))}
+          ${statTile('Nước', `${totalWaterM3.toLocaleString('vi-VN')} m³`, formatVND(sumWater))}
+          ${statTile('Người ở', `${totalOccupants} người`, sumExtraPerson ? 'Phụ thu ' + formatVND(sumExtraPerson) : 'Không phụ thu')}
+          ${statTile('Nợ cũ cộng dồn', formatVND(sumDebt), sumDebt > 0 ? 'Đã tính vào tổng' : 'Không có nợ')}
+        </div>`;
+
+      // ---------- 4. Biểu đồ các kỳ ----------
+      const chartHtml =
+        chartMonths.length > 1
+          ? `
+        <div class="${card}">
+          ${sectionTitle('Doanh thu các kỳ', '<span class="text-xs text-slate-400">bấm cột để xem</span>')}
+          <div class="flex items-end gap-2 h-36">
+            ${chartMonths
+              .map((m) => {
+                const h = Math.max(4, Math.round((m.total / chartMax) * 100));
+                const paidH = m.total > 0 ? Math.round((m.paid / m.total) * 100) : 0;
+                const active = viewMonth === m.month;
+                const target = m.month === curMonth ? 'CURRENT' : m.month;
                 return `
-                  <div class="space-y-1">
-                    <div class="flex items-center justify-between">
-                      <span class="font-semibold text-slate-700">${item.label}</span>
-                      <span class="font-extrabold text-slate-900">${formatVND(
-                        item.amount
-                      )} <span class="text-[10px] text-slate-400 font-bold">(${pct}%)</span></span>
-                    </div>
-                    <div class="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                      <div class="h-full ${item.color} rounded-full" style="width: ${pct}%"></div>
-                    </div>
-                  </div>
-                `;
+              <button onclick="appActions.setAnalyticsPeriod(${escapeHtml(JSON.stringify(target))})" class="flex-1 h-full flex flex-col justify-end items-center gap-1 min-w-0">
+                <span class="text-[11px] font-semibold ${active ? 'text-teal-700' : 'text-slate-400'}">${fmtShort(m.total)}</span>
+                <div class="w-full max-w-[36px] rounded-md overflow-hidden flex flex-col justify-end ${
+                  active ? 'bg-teal-200' : 'bg-slate-200'
+                }" style="height:${h}%">
+                  <div class="w-full ${active ? 'bg-teal-600' : 'bg-slate-400'}" style="height:${paidH}%"></div>
+                </div>
+                <span class="text-[11px] ${active ? 'font-bold text-slate-900' : 'text-slate-500'}">T${escapeHtml(
+                  String(m.month).split('/')[0].replace(/^0/, '')
+                )}</span>
+              </button>`;
               })
               .join('')}
           </div>
-        </div>
-
-        <!-- Danh sách doanh thu từng phòng (bấm vào phòng bất kỳ để xem chi tiết) -->
-        <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs space-y-3 text-xs">
-          <div class="flex items-center justify-between border-b border-slate-100 pb-2">
-            <div>
-              <h3 class="font-extrabold text-sm text-slate-900">🏆 Doanh thu theo từng phòng</h3>
-              <p class="text-[11px] text-slate-400">Bấm vào phòng bất kỳ bên dưới để mở bảng bóc tách doanh thu chi tiết</p>
-            </div>
-            <span class="text-[11px] text-slate-400">${roomRanking.length} mục</span>
+          <div class="flex gap-4 mt-3 text-xs text-slate-500">
+            <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-teal-600"></span>Đã thu</span>
+            <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-teal-200"></span>Chưa thu</span>
           </div>
+        </div>`
+          : '';
 
+      // ---------- 5. Cơ cấu nguồn thu ----------
+      const breakdownHtml =
+        breakdownShown.length > 0
+          ? `
+        <div class="${card}">
+          ${sectionTitle('Tiền đến từ đâu')}
+          <div class="flex h-3 rounded-full overflow-hidden gap-0.5">
+            ${breakdownShown
+              .filter((b) => b.amount > 0)
+              .map(
+                (b) =>
+                  `<div style="width:${(b.amount / breakdownTotal) * 100}%;background:${
+                    breakdownColors[b.color] || '#94a3b8'
+                  }"></div>`
+              )
+              .join('')}
+          </div>
+          <div class="mt-3 divide-y divide-slate-100">
+            ${breakdownShown
+              .map(
+                (b) => `
+              <div class="flex items-center justify-between py-2 text-sm">
+                <span class="flex items-center gap-2 text-slate-700"><span class="w-2.5 h-2.5 rounded-sm" style="background:${
+                  breakdownColors[b.color] || '#94a3b8'
+                }"></span>${escapeHtml(b.label)}</span>
+                <span class="font-semibold text-slate-900">${formatVND(b.amount)} <span class="text-xs font-normal text-slate-400 w-9 inline-block text-right">${Math.round(
+                  (Math.max(0, b.amount) / breakdownTotal) * 100
+                )}%</span></span>
+              </div>`
+              )
+              .join('')}
+          </div>
+        </div>`
+          : '';
+
+      // ---------- 6. Danh sách phòng ----------
+      const roomListHtml = !selectedRoomObj
+        ? `
+        <div class="${card}">
+          ${sectionTitle(
+            state.analyticsPeriod === 'CURRENT' ? 'Từng phòng' : 'Từng phiếu thu',
+            `<span class="text-xs text-slate-400">${roomRanking.length} mục</span>`
+          )}
           ${
             roomRanking.length === 0
-              ? `<p class="text-slate-400 text-center py-4">Chưa có dữ liệu doanh số.</p>`
-              : `<div class="space-y-2.5">
-                  ${roomRanking
-                    .map((r, idx) => {
-                      const barWidth = Math.max(6, Math.round((r.total / maxRoomTotal) * 100));
-                      const isSelected = state.selectedAnalyticsRoomId === r.roomId;
-                      return `
-                        <div
-                          onclick="appActions.setAnalyticsRoom('${
-                            isSelected ? 'ALL' : r.roomId
-                          }')"
-                          class="p-3 rounded-xl border transition cursor-pointer space-y-1.5 ${
-                            isSelected
-                              ? 'bg-teal-50/70 border-teal-500 ring-1 ring-teal-500'
-                              : 'bg-slate-50 border-slate-100 hover:border-teal-300'
-                          }"
-                        >
-                          <div class="flex items-center justify-between gap-2">
-                            <div class="min-w-0 flex items-center gap-2">
-                              <span class="w-5 h-5 rounded-full bg-slate-200 text-slate-700 font-black text-[10px] flex items-center justify-center shrink-0">${
-                                idx + 1
-                              }</span>
-                              <div class="truncate">
-                                <div class="flex items-center gap-1.5 flex-wrap">
-                                  <span class="font-extrabold text-slate-900">${escapeHtml(
-                                    r.name
-                                  )}</span>
-                                  ${
-                                    getRoomCategorySummary(r)
-                                      ? `<span class="text-[10px] bg-white border border-slate-200 text-slate-600 px-1.5 py-0.5 rounded font-semibold">
-                                          ${escapeHtml(getRoomCategorySummary(r))}
-                                        </span>`
-                                      : ''
-                                  }
-                                </div>
-                                <span class="text-[11px] text-slate-500 block truncate">${escapeHtml(
-                                  r.tenantName
-                                )} • Điện: ${r.kwh} kWh</span>
-                              </div>
-                            </div>
-                            <div class="text-right shrink-0">
-                              <div class="font-black text-teal-700 text-sm">${formatVND(
-                                r.total
-                              )}</div>
-                              <span class="text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                                r.status === 'PAID'
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : 'bg-amber-100 text-amber-800'
-                              }">${r.status === 'PAID' ? 'Đã thu' : 'Chưa thu'}</span>
-                            </div>
-                          </div>
-                          <div class="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                            <div class="h-full ${
-                              r.status === 'PAID' ? 'bg-emerald-500' : 'bg-amber-500'
-                            } rounded-full" style="width: ${barWidth}%"></div>
-                          </div>
-                          <div class="flex items-center justify-between text-[10px] text-teal-700 font-bold pt-0.5">
-                            <span>${
-                              isSelected
-                                ? '✓ Đang xem chi tiết phòng này (Bấm để xem tất cả)'
-                                : '👉 Bấm để xem chi tiết doanh thu phòng này'
-                            }</span>
-                          </div>
-                        </div>
-                      `;
-                    })
-                    .join('')}
-                </div>`
+              ? '<p class="text-sm text-slate-400 py-4 text-center">Chưa có dữ liệu cho kỳ này.</p>'
+              : `<div class="divide-y divide-slate-100">
+            ${roomRanking
+              .map(
+                (r) => `
+              <button onclick="appActions.setAnalyticsRoom(${escapeHtml(
+                JSON.stringify(r.roomId)
+              )})" class="w-full flex items-center gap-3 py-2.5 text-left">
+                <span class="w-2 h-2 rounded-full shrink-0 ${r.status === 'PAID' ? 'bg-emerald-500' : 'bg-amber-400'}"></span>
+                <span class="flex-1 min-w-0">
+                  <span class="block text-sm font-semibold text-slate-900 truncate">${escapeHtml(r.name)}</span>
+                  <span class="block text-xs text-slate-500 truncate">${escapeHtml(r.tenantName)}</span>
+                  <span class="block mt-1 h-1 rounded-full bg-slate-100 overflow-hidden"><span class="block h-full bg-teal-500 rounded-full" style="width:${Math.round(
+                    (r.total / maxRoomTotal) * 100
+                  )}%"></span></span>
+                </span>
+                <span class="text-right shrink-0">
+                  <span class="block text-sm font-bold text-slate-900">${formatVND(r.total)}</span>
+                  <span class="block text-xs ${r.status === 'PAID' ? 'text-emerald-600' : 'text-amber-600'}">${
+                  r.status === 'PAID' ? 'Đã thu' : 'Chưa thu'
+                }</span>
+                </span>
+              </button>`
+              )
+              .join('')}
+          </div>`
           }
-        </div>
+        </div>`
+        : '';
 
-        <!-- Bảng so sánh doanh số giữa các kỳ tháng trong lịch sử -->
-        ${
-          monthlyList.length > 0
-            ? `<div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs space-y-3 text-xs">
-                <h3 class="font-extrabold text-sm text-slate-900 border-b border-slate-100 pb-2">
-                  📅 Tổng hợp doanh số theo các kỳ tháng đã lưu ${
-                    selectedRoomObj ? `(${escapeHtml(selectedRoomObj.name)})` : ''
-                  }
-                </h3>
-                <div class="space-y-2">
-                  ${monthlyList
-                    .map(
-                      (m) => `
-                    <div class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-100">
-                      <div>
-                        <div class="font-extrabold text-slate-900 text-sm">Kỳ tháng ${escapeHtml(
-                          m.month
-                        )}</div>
-                        <div class="text-[11px] text-slate-500">${
-                          m.count
-                        } phiếu thu • Đã thu: <b class="text-emerald-700">${formatVND(
-                        m.paid
-                      )}</b></div>
-                      </div>
-                      <div class="text-right">
-                        <div class="font-black text-sm text-teal-700">${formatVND(m.total)}</div>
-                        ${
-                          m.unpaid > 0
-                            ? `<div class="text-[10px] font-bold text-amber-700">Chưa thu: ${formatVND(
-                                m.unpaid
-                              )}</div>`
-                            : `<div class="text-[10px] font-bold text-emerald-600">Hoàn tất 100%</div>`
-                        }
-                      </div>
-                    </div>
-                  `
-                    )
-                    .join('')}
-                </div>
+      // ---------- 7. Chi tiết 1 phòng ----------
+      let roomDetailHtml = '';
+      if (selectedRoomObj && selectedRoomBill) {
+        const r = selectedRoomObj;
+        const b = selectedRoomBill;
+        const line = (label, sub, amount) =>
+          amount
+            ? `<div class="flex items-start justify-between py-2 text-sm">
+                <span class="text-slate-700">${label}${sub ? `<span class="block text-xs text-slate-400">${sub}</span>` : ''}</span>
+                <span class="font-semibold text-slate-900">${formatVND(amount)}</span>
               </div>`
+            : '';
+        roomDetailHtml = `
+        <div class="${card}">
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0">
+              <p class="text-xs text-slate-500">${escapeHtml(getRoomCategorySummary(r) || (r.type === 'kiot' ? 'Kiot' : 'Phòng trọ'))}</p>
+              <h3 class="text-base font-bold text-slate-900 truncate">${escapeHtml(r.name)}</h3>
+              <p class="text-xs text-slate-500 truncate">${escapeHtml(r.tenantName || 'Khách thuê')}${
+          r.tenantPhone ? ' · ' + escapeHtml(r.tenantPhone) : ''
+        }</p>
+            </div>
+            <button onclick="appActions.setAnalyticsRoom('ALL')" class="shrink-0 text-xs font-semibold text-slate-500 border border-slate-200 rounded-full px-3 py-1">✕ Đóng</button>
+          </div>
+          <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mt-4">Kỳ ${escapeHtml(curMonth)}</p>
+          <div class="divide-y divide-slate-100">
+            ${line('Tiền phòng', '', b.baseRent)}
+            ${line('Phụ thu thêm người', `${b.extraPeopleCount} người vượt định mức`, b.extraPersonTotal)}
+            ${line('Điện', `${r.oldElectric} → ${r.newElectric} · ${b.electricUsage} kWh × ${formatVND(r.electricPrice)}`, b.electricTotal)}
+            ${line(
+              'Nước',
+              r.waterMode === 'person'
+                ? `${b.waterUsage} người × ${formatVND(r.waterPrice)}`
+                : `${r.oldWater} → ${r.newWater} · ${b.waterUsage} m³ × ${formatVND(r.waterPrice)}`,
+              b.waterTotal
+            )}
+            ${line('Rác', '', b.trashFee)}
+            ${line('Phí phát sinh', (r.extraFees || []).map((f) => escapeHtml(f.title || '')).join(', '), b.extraFeesTotal)}
+            ${line('Nợ cũ', '', b.previousDebt)}
+            <div class="flex items-center justify-between pt-3 text-sm">
+              <span class="font-bold text-slate-900">Tổng cộng</span>
+              <span class="text-lg font-extrabold text-teal-700">${formatVND(b.grandTotal)}</span>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-2 mt-4">
+            <button onclick="appActions.togglePaidStatus(${escapeHtml(JSON.stringify(r.id))}); renderApp();" class="py-2.5 rounded-xl text-sm font-semibold border ${
+              r.status === 'PAID'
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                : 'bg-white border-slate-200 text-slate-700'
+            }">${r.status === 'PAID' ? '✓ Đã thu' : 'Đánh dấu đã thu'}</button>
+            <button onclick="appActions.saveAndOpenRoomReceipt(${escapeHtml(JSON.stringify(r.id))})" class="py-2.5 rounded-xl text-sm font-semibold bg-teal-700 text-white">Xem phiếu thu</button>
+          </div>
+          <button onclick="appActions.selectRoomForCalculator(${escapeHtml(JSON.stringify(r.id))})" class="w-full mt-2 py-2 text-xs font-semibold text-teal-700">Sửa chỉ số điện nước →</button>
+        </div>
+        ${
+          selectedRoomHistory.length > 0
+            ? `<div class="${card}">
+          ${sectionTitle('Lịch sử thu tiền', `<span class="text-xs text-slate-400">${selectedRoomHistory.length} kỳ</span>`)}
+          <div class="divide-y divide-slate-100">
+            ${selectedRoomHistory
+              .map(
+                (h) => `
+              <button onclick="appActions.openExistingInvoiceReceipt(${escapeHtml(JSON.stringify(h.id))})" class="w-full flex items-center justify-between py-2.5 text-left text-sm">
+                <span><span class="font-semibold text-slate-900">Kỳ ${escapeHtml(h.month)}</span><span class="block text-xs text-slate-400">${
+                  Number(h.electric?.usage) || 0
+                } kWh · ${Number(h.water?.usage) || 0} ${h.water?.mode === 'person' ? 'người' : 'm³'}</span></span>
+                <span class="text-right"><span class="block font-bold text-slate-900">${formatVND(h.grandTotal)}</span><span class="block text-xs ${
+                  h.status === 'PAID' ? 'text-emerald-600' : 'text-amber-600'
+                }">${h.status === 'PAID' ? 'Đã thu' : 'Chưa thu'}</span></span>
+              </button>`
+              )
+              .join('')}
+          </div>
+        </div>`
             : ''
-        }
+        }`;
+      }
+
+      return `
+        <div class="space-y-3 max-w-2xl mx-auto">
+          ${filtersHtml}
+          ${heroHtml}
+          ${roomDetailHtml}
+          ${statsHtml}
+          ${chartHtml}
+          ${breakdownHtml}
+          ${roomListHtml}
+        </div>
       `;
     }
 
-    // ============================================================================
-    // 13. TAB 5: CÀI ĐẶT NGÂN HÀNG VIETQR, ĐƠN GIÁ & SAO LƯU DỮ LIỆU
-    // ============================================================================
     function renderSettingsTab() {
       const s = state.settings;
       return `

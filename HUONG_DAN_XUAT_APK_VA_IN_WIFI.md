@@ -34,3 +34,15 @@ Nếu bạn muốn in ngay lập tức trên điện thoại Android ngay bây g
 2. Mở app **RawBT** -> Chọn **Connection method: WiFi / Ethernet** -> Nhập IP máy in của bạn (VD: `192.168.2.60`) và Port `9100`.
 3. Mở ứng dụng Quản Lý Trọ của bạn -> Vào tab **Cài đặt** -> Bấm **⚙️ Cài đặt** ở mục Máy in WiFi 80mm -> Tại mục **Phương thức truyền lệnh in thật**, chọn **🚀 In trực tiếp qua App RawBT** rồi bấm **Lưu**.
 4. Từ lúc này, mỗi khi bạn bấm **🖨️ In thử** hoặc **🖨️ In Bill WiFi 80mm**, ứng dụng sẽ truyền thẳng mã lệnh ESC/POS khổ 80mm sang RawBT và máy in nhiệt sẽ tự động in & cắt giấy ngay lập tức!
+
+---
+
+## GHI CHÚ CHO NGƯỜI SỬA CODE
+- **Chỉ sửa giao diện ở `docs/index.html`.** Khi build APK, Gradle tự chép `docs/index.html`, `docs/app.css` và `docs/fonts/` sang `app/src/main/assets/`, nên bản web và APK luôn giống nhau.
+- Giao diện dùng Tailwind CSS **đóng gói sẵn** trong `docs/app.css` (kèm font Inter trong `docs/fonts/`), nên app chạy được cả khi **không có mạng**. Nếu bạn thêm class Tailwind mới vào `index.html`, chạy lại lệnh sau rồi commit cả `docs/app.css`:
+  ```
+  npm install
+  npm run build:css
+  ```
+  (GitHub Actions cũng tự chạy lệnh này trước khi build APK.)
+- APK chỉ cho in tới IP máy in trong **mạng nội bộ** (192.168.x.x, 10.x.x.x, 172.16–31.x.x) và chỉ tải ảnh QR từ `img.vietqr.io`.

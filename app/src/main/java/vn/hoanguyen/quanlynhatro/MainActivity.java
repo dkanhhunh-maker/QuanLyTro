@@ -27,6 +27,8 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
+
+import org.json.JSONObject;
 import androidx.appcompat.app.AppCompatActivity;
 
 import java.io.ByteArrayOutputStream;
@@ -35,6 +37,7 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.URL;
@@ -55,6 +58,8 @@ public class MainActivity extends AppCompatActivity {
     private ValueCallback<Uri[]> filePathCallback;
     private String pendingExportJsonContent = null;
     private final ExecutorService printerExecutor = Executors.newCachedThreadPool();
+    private static final java.util.Set<String> ALLOWED_IMAGE_HOSTS =
+            new java.util.HashSet<>(java.util.Arrays.asList("img.vietqr.io", "api.vietqr.io"));
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -82,11 +87,12 @@ public class MainActivity extends AppCompatActivity {
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setDatabaseEnabled(true);
-        settings.setAllowFileAccess(true);
+        // file:///android_asset/ vẫn tải được khi tắt AllowFileAccess; tắt để trang không đọc được file khác trong máy
+        settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(true);
         settings.setLoadWithOverviewMode(true);
         settings.setUseWideViewPort(true);
-        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
 
         // Đăng ký cầu nối JavaScript -> Native Android (In WiFi 9100 nguyên mẫu Xem QR + Xuất/Nhập file sao lưu .json)
         webView.addJavascriptInterface(new AndroidPrinterBridge(this), "AndroidPrinterBridge");
@@ -147,13 +153,59 @@ public class MainActivity extends AppCompatActivity {
         }
 
         /**
+         * Chỉ cho phép kết nối tới máy in trong mạng nội bộ (192.168.x.x, 10.x.x.x, 172.16-31.x.x).
+         * Chặn trang web dùng cầu nối để gửi dữ liệu ra địa chỉ Internet bất kỳ.
+         */
+        private InetAddress resolveLanPrinter(String ip, int port) throws Exception {
+            if (ip == null || ip.trim().isEmpty()) {
+                throw new IllegalArgumentException("Chưa nhập IP máy in");
+            }
+            if (port < 1 || port > 65535) {
+                throw new IllegalArgumentException("Cổng máy in không hợp lệ: " + port);
+            }
+            InetAddress addr = InetAddress.getByName(ip.trim());
+            if (!(addr.isSiteLocalAddress() || addr.isLinkLocalAddress() || addr.isLoopbackAddress())) {
+                throw new IllegalArgumentException(
+                        "Chỉ cho phép IP máy in trong mạng nội bộ (VD: 192.168.x.x)");
+            }
+            return addr;
+        }
+
+        /** Trả kết quả về JavaScript (chạy trên luồng giao diện) cho các hàm ...Async */
+        private void deliverResult(final String callbackId, final String result) {
+            final String js = "window.__onNativeResult && window.__onNativeResult("
+                    + JSONObject.quote(callbackId == null ? "" : callbackId) + ","
+                    + JSONObject.quote(result == null ? "" : result) + ");";
+            runOnUiThread(() -> {
+                if (webView != null) webView.evaluateJavascript(js, null);
+            });
+        }
+
+        // Các bản Async: chạy ở luồng nền, KHÔNG làm đứng giao diện trong lúc chờ máy in / mạng
+        @JavascriptInterface
+        public void testConnectionAsync(final String ip, final int port, final String callbackId) {
+            printerExecutor.execute(() -> deliverResult(callbackId, testConnection(ip, port)));
+        }
+
+        @JavascriptInterface
+        public void printRawEscPosAsync(final String ip, final int port, final String base64Payload, final String callbackId) {
+            printerExecutor.execute(() -> deliverResult(callbackId, printRawEscPos(ip, port, base64Payload)));
+        }
+
+        @JavascriptInterface
+        public void fetchImageBase64Async(final String imageUrl, final String callbackId) {
+            printerExecutor.execute(() -> deliverResult(callbackId, fetchImageBase64(imageUrl)));
+        }
+
+        /**
          * Kiểm tra kết nối TCP Socket trực tiếp tới máy in nhiệt WiFi (VD: 192.168.2.60:9100)
          */
         @JavascriptInterface
         public String testConnection(final String ip, final int port) {
             Callable<String> task = () -> {
                 try (Socket socket = new Socket()) {
-                    socket.connect(new InetSocketAddress(ip.trim(), port), 3000);
+                    InetAddress addr = resolveLanPrinter(ip, port);
+                    socket.connect(new InetSocketAddress(addr, port), 3000);
                     return "OK";
                 } catch (Exception e) {
                     return "ERROR: " + e.getMessage();
@@ -174,7 +226,8 @@ public class MainActivity extends AppCompatActivity {
         public String printRawEscPos(final String ip, final int port, final String base64Payload) {
             Callable<String> task = () -> {
                 try (Socket socket = new Socket()) {
-                    socket.connect(new InetSocketAddress(ip.trim(), port), 4500);
+                    InetAddress addr = resolveLanPrinter(ip, port);
+                    socket.connect(new InetSocketAddress(addr, port), 4500);
                     socket.setSoTimeout(15000);
                     byte[] rawBytes = Base64.decode(base64Payload, Base64.DEFAULT);
                     OutputStream out = socket.getOutputStream();
@@ -214,7 +267,13 @@ public class MainActivity extends AppCompatActivity {
                 HttpURLConnection conn = null;
                 try {
                     URL url = new URL(imageUrl);
+                    // Chỉ cho tải ảnh mã QR từ VietQR qua HTTPS, không cho tải URL tuỳ ý
+                    if (!"https".equalsIgnoreCase(url.getProtocol())
+                            || !ALLOWED_IMAGE_HOSTS.contains(url.getHost().toLowerCase())) {
+                        return "";
+                    }
                     conn = (HttpURLConnection) url.openConnection();
+                    conn.setInstanceFollowRedirects(false);
                     conn.setConnectTimeout(3500);
                     conn.setReadTimeout(4500);
                     conn.setDoInput(true);
@@ -405,6 +464,17 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
         }
+    }
+
+    @Override
+    protected void onDestroy() {
+        printerExecutor.shutdownNow();
+        if (webView != null) {
+            webView.removeJavascriptInterface("AndroidPrinterBridge");
+            webView.destroy();
+            webView = null;
+        }
+        super.onDestroy();
     }
 
     @Override
