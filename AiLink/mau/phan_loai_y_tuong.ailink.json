@@ -1,0 +1,112 @@
+{
+  "phien_ban": 1,
+  "ten": "Phân loại ý tưởng → Short hay Dài",
+  "mo_ta": "AI phân loại ý tưởng; mỗi nhãn đi dây chuyền riêng; Gộp lấy nhánh xong trước; AI báo cáo tóm tắt.",
+  "nodes": [
+    {
+      "id": "bat_dau",
+      "loai": "bat_dau",
+      "cai_dat": {},
+      "vi_tri": [
+        40,
+        220
+      ]
+    },
+    {
+      "id": "loai",
+      "loai": "phan_loai",
+      "cai_dat": {
+        "nhan": [
+          "short",
+          "dai"
+        ],
+        "cau_hoi": "Ý tưởng này hợp Short hay video dài?"
+      },
+      "vi_tri": [
+        276,
+        220
+      ]
+    },
+    {
+      "id": "short",
+      "loai": "kich_ban_short",
+      "cai_dat": {},
+      "vi_tri": [
+        565,
+        120
+      ]
+    },
+    {
+      "id": "dai",
+      "loai": "kich_ban_dai",
+      "cai_dat": {},
+      "vi_tri": [
+        565,
+        320
+      ]
+    },
+    {
+      "id": "gom",
+      "loai": "gop",
+      "cai_dat": {
+        "che_do": "xong_truoc",
+        "kieu": "noi_chu"
+      },
+      "vi_tri": [
+        828,
+        220
+      ]
+    },
+    {
+      "id": "bao_cao",
+      "loai": "bao_cao_ai",
+      "cai_dat": {
+        "loai": "tuy_chinh",
+        "muc": [
+          "Ý tưởng được xếp loại gì, vì sao",
+          "Kịch bản tóm tắt",
+          "Bước tiếp theo"
+        ],
+        "dinh_dang": "markdown",
+        "do_dai": "ngan"
+      },
+      "vi_tri": [
+        1064,
+        220
+      ]
+    }
+  ],
+  "day": [
+    {
+      "tu": "bat_dau",
+      "den": "loai"
+    },
+    {
+      "tu": "loai",
+      "den": "short",
+      "cong": "short"
+    },
+    {
+      "tu": "loai",
+      "den": "dai",
+      "cong": "dai"
+    },
+    {
+      "tu": "loai",
+      "den": "short",
+      "cong": "khac"
+    },
+    {
+      "tu": "short",
+      "den": "gom"
+    },
+    {
+      "tu": "dai",
+      "den": "gom"
+    },
+    {
+      "tu": "gom",
+      "den": "bao_cao"
+    }
+  ]
+}

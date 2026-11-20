@@ -1,0 +1,5 @@
+# Lõi (engine, node, AI giả lập, tay API) chỉ cần Python 3.10+ có sẵn.
+# Các thư viện dưới dùng cho giao diện và các giai đoạn sau:
+pywebview>=5.0      # cửa sổ giao diện (giai đoạn 2)
+keyring>=25.0       # lưu key trong Windows Credential Manager (giai đoạn 3)
+playwright>=1.45    # tay Chrome (giai đoạn 4)

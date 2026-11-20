@@ -1,0 +1,160 @@
+{
+  "phien_ban": 1,
+  "ten": "Mọi kênh × 1 Short (duyệt từng kênh)",
+  "mo_ta": "Cho mỗi kênh: chọn hồ sơ → nghiên cứu ngách → viết → khối kiểm tra → chờ anh duyệt riêng từng kênh → đăng; cuối cùng AI báo cáo lần chạy.",
+  "nodes": [
+    {
+      "id": "bat_dau",
+      "loai": "bat_dau",
+      "cai_dat": {
+        "goi_y_nhap": "Chủ đề chung (để trống = theo ngách)"
+      },
+      "vi_tri": [
+        40,
+        220
+      ]
+    },
+    {
+      "id": "moi_kenh",
+      "loai": "cho_moi",
+      "cai_dat": {
+        "danh_sach": "tat_ca_kenh",
+        "ket_thuc": "tong_hop",
+        "song_song": 3
+      },
+      "vi_tri": [
+        276,
+        220
+      ]
+    },
+    {
+      "id": "chon",
+      "loai": "chon_kenh",
+      "cai_dat": {
+        "kenh": "{{phan_tu}}"
+      },
+      "vi_tri": [
+        513,
+        220
+      ]
+    },
+    {
+      "id": "ngach",
+      "loai": "nghien_cuu_ngach",
+      "cai_dat": {
+        "so_y_tuong": 3
+      },
+      "vi_tri": [
+        750,
+        220
+      ]
+    },
+    {
+      "id": "viet",
+      "loai": "kich_ban_short",
+      "cai_dat": {},
+      "vi_tri": [
+        987,
+        220
+      ]
+    },
+    {
+      "id": "kiem",
+      "loai": "khoi_con",
+      "cai_dat": {
+        "so_do": "khoi_kiem_tra.ailink.json"
+      },
+      "vi_tri": [
+        1225,
+        220
+      ]
+    },
+    {
+      "id": "duyet",
+      "loai": "cho_duyet",
+      "cai_dat": {},
+      "vi_tri": [
+        1461,
+        220
+      ]
+    },
+    {
+      "id": "dang",
+      "loai": "dang_bai",
+      "cai_dat": {},
+      "vi_tri": [
+        1698,
+        220
+      ]
+    },
+    {
+      "id": "tong_hop",
+      "loai": "gop",
+      "cai_dat": {
+        "kieu": "danh_sach"
+      },
+      "vi_tri": [
+        1935,
+        220
+      ]
+    },
+    {
+      "id": "bao_cao",
+      "loai": "bao_cao_ai",
+      "cai_dat": {
+        "loai": "lan_chay",
+        "dinh_dang": "telegram",
+        "do_dai": "ngan"
+      },
+      "vi_tri": [
+        2172,
+        220
+      ]
+    }
+  ],
+  "day": [
+    {
+      "tu": "bat_dau",
+      "den": "moi_kenh"
+    },
+    {
+      "tu": "moi_kenh",
+      "den": "chon"
+    },
+    {
+      "tu": "chon",
+      "den": "ngach"
+    },
+    {
+      "tu": "ngach",
+      "den": "viet"
+    },
+    {
+      "tu": "viet",
+      "den": "kiem"
+    },
+    {
+      "tu": "kiem",
+      "den": "duyet"
+    },
+    {
+      "tu": "duyet",
+      "den": "dang",
+      "cong": "duyet"
+    },
+    {
+      "tu": "duyet",
+      "den": "viet",
+      "cong": "sua",
+      "lap_toi_da": 3
+    },
+    {
+      "tu": "dang",
+      "den": "tong_hop"
+    },
+    {
+      "tu": "tong_hop",
+      "den": "bao_cao"
+    }
+  ]
+}

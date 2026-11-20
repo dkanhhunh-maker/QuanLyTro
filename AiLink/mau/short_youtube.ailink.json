@@ -1,0 +1,218 @@
+{
+  "phien_ban": 1,
+  "ten": "Short YouTube: ý tưởng → bài đăng",
+  "mo_ta": "Viết kịch bản Short, AI chấm (không đạt thì viết lại tối đa 3 lần), làm tiêu đề + ảnh + giọng + thumbnail song song, kiểm duyệt, chờ anh duyệt rồi mới đăng.",
+  "nodes": [
+    {
+      "id": "bat_dau",
+      "loai": "bat_dau",
+      "cai_dat": {
+        "goi_y_nhap": "Chủ đề Short"
+      },
+      "vi_tri": [
+        40,
+        220
+      ]
+    },
+    {
+      "id": "viet",
+      "loai": "kich_ban_short",
+      "cai_dat": {
+        "do_dai_giay": 45,
+        "ai": "tu_chon"
+      },
+      "vi_tri": [
+        276,
+        220
+      ]
+    },
+    {
+      "id": "kiem_tra",
+      "loai": "kiem_tra_chat_luong",
+      "cai_dat": {
+        "nguong": 8
+      },
+      "vi_tri": [
+        512,
+        220
+      ]
+    },
+    {
+      "id": "tieu_de",
+      "loai": "tieu_de_mo_ta",
+      "cai_dat": {},
+      "vi_tri": [
+        771,
+        80
+      ]
+    },
+    {
+      "id": "anh",
+      "loai": "tao_anh",
+      "cai_dat": {
+        "khung": "9:16"
+      },
+      "vi_tri": [
+        771,
+        190
+      ]
+    },
+    {
+      "id": "giong",
+      "loai": "giong_doc",
+      "cai_dat": {},
+      "vi_tri": [
+        771,
+        300
+      ]
+    },
+    {
+      "id": "thumb",
+      "loai": "thumbnail",
+      "cai_dat": {
+        "khung": "9:16",
+        "chu_tren_anh": "{{tieu_de.tieu_de}}"
+      },
+      "vi_tri": [
+        1031,
+        80
+      ]
+    },
+    {
+      "id": "gom",
+      "loai": "gop",
+      "cai_dat": {
+        "che_do": "cho_tat_ca",
+        "kieu": "doi_tuong"
+      },
+      "vi_tri": [
+        1267,
+        220
+      ]
+    },
+    {
+      "id": "kiem_duyet",
+      "loai": "kiem_duyet",
+      "cai_dat": {
+        "nen_tang": [
+          "youtube",
+          "facebook",
+          "tiktok"
+        ]
+      },
+      "vi_tri": [
+        1503,
+        220
+      ]
+    },
+    {
+      "id": "duyet",
+      "loai": "cho_duyet",
+      "cai_dat": {},
+      "vi_tri": [
+        1739,
+        220
+      ]
+    },
+    {
+      "id": "dang",
+      "loai": "dang_bai",
+      "cai_dat": {
+        "nen_tang": [
+          "youtube"
+        ]
+      },
+      "vi_tri": [
+        1975,
+        220
+      ]
+    }
+  ],
+  "day": [
+    {
+      "tu": "bat_dau",
+      "den": "viet"
+    },
+    {
+      "tu": "viet",
+      "den": "kiem_tra"
+    },
+    {
+      "tu": "kiem_tra",
+      "den": "viet",
+      "cong": "khong_dat",
+      "lap_toi_da": 3
+    },
+    {
+      "tu": "kiem_tra",
+      "den": "tieu_de",
+      "cong": "dat"
+    },
+    {
+      "tu": "kiem_tra",
+      "den": "anh",
+      "cong": "dat"
+    },
+    {
+      "tu": "kiem_tra",
+      "den": "giong",
+      "cong": "dat"
+    },
+    {
+      "tu": "kiem_tra",
+      "den": "gom",
+      "cong": "dat"
+    },
+    {
+      "tu": "tieu_de",
+      "den": "thumb"
+    },
+    {
+      "tu": "tieu_de",
+      "den": "gom"
+    },
+    {
+      "tu": "anh",
+      "den": "gom"
+    },
+    {
+      "tu": "giong",
+      "den": "gom"
+    },
+    {
+      "tu": "thumb",
+      "den": "gom"
+    },
+    {
+      "tu": "gom",
+      "den": "kiem_duyet"
+    },
+    {
+      "tu": "kiem_duyet",
+      "den": "duyet",
+      "cong": "dat"
+    },
+    {
+      "tu": "kiem_duyet",
+      "den": "duyet",
+      "cong": "can_xem"
+    },
+    {
+      "tu": "kiem_duyet",
+      "den": "viet",
+      "cong": "chan",
+      "lap_toi_da": 2
+    },
+    {
+      "tu": "duyet",
+      "den": "dang",
+      "cong": "duyet"
+    },
+    {
+      "tu": "duyet",
+      "den": "viet",
+      "cong": "sua",
+      "lap_toi_da": 3
+    }
+  ]
+}

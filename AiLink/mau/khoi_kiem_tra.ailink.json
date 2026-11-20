@@ -1,0 +1,52 @@
+{
+  "phien_ban": 1,
+  "ten": "Khối: Kiểm tra chất lượng + Kiểm duyệt",
+  "mo_ta": "Khối con dùng lại: chấm chất lượng rồi kiểm duyệt; ra kết quả kiểm duyệt.",
+  "nodes": [
+    {
+      "id": "vao",
+      "loai": "bat_dau",
+      "cai_dat": {},
+      "vi_tri": [
+        40,
+        140
+      ]
+    },
+    {
+      "id": "chat_luong",
+      "loai": "kiem_tra_chat_luong",
+      "cai_dat": {
+        "nguong": 7
+      },
+      "vi_tri": [
+        276,
+        140
+      ]
+    },
+    {
+      "id": "kiem_duyet",
+      "loai": "kiem_duyet",
+      "cai_dat": {},
+      "vi_tri": [
+        535,
+        140
+      ]
+    }
+  ],
+  "day": [
+    {
+      "tu": "vao",
+      "den": "chat_luong"
+    },
+    {
+      "tu": "chat_luong",
+      "den": "kiem_duyet",
+      "cong": "dat"
+    },
+    {
+      "tu": "chat_luong",
+      "den": "kiem_duyet",
+      "cong": "khong_dat"
+    }
+  ]
+}

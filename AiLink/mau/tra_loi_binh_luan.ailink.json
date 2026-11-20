@@ -1,0 +1,69 @@
+{
+  "phien_ban": 1,
+  "ten": "Soạn trả lời bình luận",
+  "mo_ta": "Dán bình luận (mỗi dòng 1 cái) → AI soạn trả lời theo giọng kênh → kiểm duyệt → chờ anh duyệt.",
+  "nodes": [
+    {
+      "id": "bat_dau",
+      "loai": "bat_dau",
+      "cai_dat": {
+        "goi_y_nhap": "Mỗi dòng 1 bình luận"
+      },
+      "vi_tri": [
+        40,
+        180
+      ]
+    },
+    {
+      "id": "soan",
+      "loai": "tra_loi_binh_luan",
+      "cai_dat": {},
+      "vi_tri": [
+        276,
+        180
+      ]
+    },
+    {
+      "id": "kiem_duyet",
+      "loai": "kiem_duyet",
+      "cai_dat": {
+        "nen_tang": [
+          "youtube"
+        ]
+      },
+      "vi_tri": [
+        512,
+        180
+      ]
+    },
+    {
+      "id": "duyet",
+      "loai": "cho_duyet",
+      "cai_dat": {},
+      "vi_tri": [
+        748,
+        180
+      ]
+    }
+  ],
+  "day": [
+    {
+      "tu": "bat_dau",
+      "den": "soan"
+    },
+    {
+      "tu": "soan",
+      "den": "kiem_duyet"
+    },
+    {
+      "tu": "kiem_duyet",
+      "den": "duyet",
+      "cong": "dat"
+    },
+    {
+      "tu": "kiem_duyet",
+      "den": "duyet",
+      "cong": "can_xem"
+    }
+  ]
+}
