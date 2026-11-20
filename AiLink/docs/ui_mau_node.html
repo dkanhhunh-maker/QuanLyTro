@@ -1,0 +1,363 @@
+<title>AiLink Điều Phối</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;700&display=swap">
+<style>
+/* Layout: 2 tab. "Sơ đồ node" = canvas kéo thả giống n8n/ComfyUI, "Đội AI" = khai báo AI và tay API/Chrome */
+:root{
+  --bg:#f3f2ef; --surface:#fcfcfa; --line:#dcdad3; --fg:#1d2330; --muted:#667085; --wire:#8a8f9c; --grid:#d9d7cf;
+  --accent:#c2410c; --accent-fg:#fff; --accent-soft:#fbe9df;
+  --ok:#15803d; --ok-soft:#e1f3e7; --warn:#a16207; --warn-soft:#fbf0d0; --bad:#b42318; --bad-soft:#fde4e1;
+  --run:#1d4ed8; --run-soft:#e0e9fd;
+  --head:"Space Grotesk","Segoe UI",system-ui,sans-serif; --body:"Inter","Segoe UI",system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#12161e; --surface:#1a202b; --line:#2b3342; --fg:#e8ebf1; --muted:#98a2b3; --wire:#5f6b82; --grid:#232b39;
+  --accent:#f0773f; --accent-fg:#1a0f08; --accent-soft:#3a2216;
+  --ok:#4ade80; --ok-soft:#14301f; --warn:#facc15; --warn-soft:#352c0d; --bad:#f87171; --bad-soft:#3a1816;
+  --run:#7aa2ff; --run-soft:#1a2745; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#12161e; --surface:#1a202b; --line:#2b3342; --fg:#e8ebf1; --muted:#98a2b3; --wire:#5f6b82; --grid:#232b39;
+  --accent:#f0773f; --accent-fg:#1a0f08; --accent-soft:#3a2216;
+  --ok:#4ade80; --ok-soft:#14301f; --warn:#facc15; --warn-soft:#352c0d; --bad:#f87171; --bad-soft:#3a1816;
+  --run:#7aa2ff; --run-soft:#1a2745; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:14px;line-height:1.5;
+  padding-block:16px 40px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:1240px;margin:0 auto}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin-bottom:12px}
+h1{font-family:var(--head);font-size:22px;margin:0;letter-spacing:-.01em}
+h2{font-family:var(--head);font-size:15px;margin:0 0 10px}
+.tag{font-size:12px;padding:3px 9px;border-radius:99px;background:var(--warn-soft);color:var(--warn);font-weight:500}
+.tabs{display:flex;gap:4px;margin-bottom:12px;border-bottom:1px solid var(--line)}
+.tab{border:0;border-bottom:2px solid transparent;border-radius:0;background:none;padding:8px 14px;color:var(--muted);font-weight:500}
+.tab[aria-selected=true]{color:var(--fg);border-bottom-color:var(--accent)}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px}
+.stack{display:flex;flex-direction:column;gap:10px}
+label{font-size:12px;color:var(--muted);display:block;margin-bottom:3px}
+input[type=text],input[type=password],select,textarea{width:100%;font:inherit;font-size:13px;color:var(--fg);background:var(--bg);
+  border:1px solid var(--line);border-radius:6px;padding:6px 8px}
+textarea{resize:vertical;min-height:52px}
+input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+button{font:inherit;cursor:pointer;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--fg);padding:6px 12px}
+button.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent);font-weight:600}
+button:disabled{opacity:.5;cursor:default}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px}
+.toolbar select{width:auto}
+.hint{font-size:12.5px;color:var(--muted)}
+.spacer{flex:1}
+/* canvas */
+.cv-wrap{height:600px;overflow:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+.cv{position:relative;width:1420px;height:760px;
+  background-image:radial-gradient(var(--grid) 1.2px,transparent 1.2px);background-size:22px 22px}
+svg.wires{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
+svg.wires path{fill:none;stroke:var(--wire);stroke-width:2.2}
+svg.wires path.hit{stroke:transparent;stroke-width:14;pointer-events:stroke;cursor:pointer}
+svg.wires path.hit:hover + path.vis{stroke:var(--bad)}
+svg.wires path.live{stroke:var(--ok)}
+svg.wires path.tmp{stroke:var(--accent);stroke-dasharray:5 4}
+.node{position:absolute;width:236px;background:var(--surface);border:1.5px solid var(--line);border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+.node.running{border-color:var(--run)} .node.done{border-color:var(--ok)} .node.fail{border-color:var(--bad)}
+.node.skip,.node.wait{border-color:var(--warn)}
+.nhead{display:flex;align-items:center;gap:6px;padding:7px 8px;border-radius:7px 7px 0 0;cursor:grab;touch-action:none;user-select:none;font-family:var(--head);font-weight:700;font-size:13px}
+.nhead:active{cursor:grabbing}
+.t-input .nhead{background:var(--bg)} .t-ai .nhead{background:var(--accent-soft);color:var(--accent)}
+.t-publish .nhead{background:var(--run-soft);color:var(--run)} .t-save .nhead{background:var(--ok-soft);color:var(--ok)}
+.nhead .x{border:0;background:none;padding:0 4px;color:inherit;font-size:15px;line-height:1}
+.nbody{padding:8px;display:flex;flex-direction:column;gap:6px}
+.status{font-size:11.5px;font-weight:500;padding:1px 8px;border-radius:99px;align-self:flex-start}
+.status.idle{background:var(--bg);color:var(--muted)} .status.running{background:var(--run-soft);color:var(--run)}
+.status.done{background:var(--ok-soft);color:var(--ok)} .status.fail{background:var(--bad-soft);color:var(--bad)}
+.status.skip,.status.wait{background:var(--warn-soft);color:var(--warn)}
+.via{font-size:12px;color:var(--muted)} .via.warn{color:var(--warn)}
+.out{font-size:12px;white-space:pre-wrap;word-break:break-word;max-height:76px;overflow:auto;padding:6px;border-radius:6px;background:var(--bg);border:1px solid var(--line)}
+.port{position:absolute;top:50%;width:14px;height:14px;margin-top:-7px;border-radius:50%;background:var(--surface);border:2.5px solid var(--wire);cursor:crosshair;touch-action:none}
+.port.in{left:-8px} .port.out{right:-8px;border-color:var(--accent)}
+.port:hover{background:var(--accent)}
+/* workers tab */
+.wgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.worker{border:1px solid var(--line);border-radius:8px;padding:10px;background:var(--bg)}
+.worker.off{opacity:.55}
+.wtop{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.wname{font-family:var(--head);font-weight:700;font-size:15px}
+.chips{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0}
+.chip{font-size:11.5px;padding:2px 8px;border-radius:4px;background:var(--accent-soft);color:var(--accent)}
+.hands{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;margin-top:8px}
+.hand{border:1px dashed var(--line);border-radius:6px;padding:7px}
+.chk{display:flex;gap:6px;align-items:center;color:var(--fg);font-size:12.5px;margin:0 0 5px}
+</style>
+
+<div class="wrap">
+<header>
+  <h1>AiLink</h1>
+  <span class="tag">Bản thử giao diện: chưa nối AI thật, kết quả là dữ liệu mẫu</span>
+</header>
+<div class="tabs" role="tablist">
+  <button class="tab" role="tab" id="tab-flow" aria-selected="true">Sơ đồ node</button>
+  <button class="tab" role="tab" id="tab-team" aria-selected="false">Đội AI</button>
+</div>
+
+<section id="p-flow">
+  <div class="toolbar">
+    <button class="primary" id="run">Chạy sơ đồ</button>
+    <button id="reset">Xoá kết quả</button>
+    <label for="addsel" style="margin:0">Thêm node:</label>
+    <select id="addsel"><option value="">chọn loại...</option><option value="ai">Node AI</option><option value="publish">Node đăng bài</option><option value="save">Node lưu file</option></select>
+    <span class="spacer"></span>
+    <span class="hint">Kéo thanh tiêu đề để dời node. Kéo từ chấm cam (phải) sang chấm trái để nối. Bấm vào dây để xoá.</span>
+  </div>
+  <div class="cv-wrap" id="cvwrap"><div class="cv" id="cv"><svg class="wires" id="wires"></svg></div></div>
+</section>
+
+<section id="p-team" hidden>
+  <div class="panel">
+    <div class="toolbar"><h2 style="margin:0">Đội AI</h2><span class="spacer"></span><button id="addw">+ Thêm AI</button></div>
+    <p class="hint" style="margin:0 0 10px">Danh sách này là nguồn cho ô chọn AI trong từng node. Mỗi AI có tay API (key) và tay Chrome (tài khoản đã đăng nhập).</p>
+    <div class="wgrid" id="workers"></div>
+  </div>
+</section>
+</div>
+
+<script>
+const BROWSERS=["Chrome A","Chrome B","Chrome C","Chrome D","Cốc Cốc"];
+let uid=1; const nid=()=> "n"+(uid++);
+let workers=[
+ {id:"w1",name:"Claude",roles:["điều phối","kiểm tra"],on:true,api:true,key:"",chrome:true,prof:"Chrome D"},
+ {id:"w2",name:"ChatGPT",roles:["điều tra","kịch bản"],on:true,api:true,key:"",chrome:true,prof:"Chrome A"},
+ {id:"w3",name:"Gemini",roles:["video"],on:true,api:true,key:"",chrome:true,prof:"Chrome B"},
+ {id:"w4",name:"Meta Muse",roles:["ảnh"],on:true,api:true,key:"",chrome:true,prof:"Chrome C"}
+];
+/* ai: "auto" = em chọn theo vai; hoặc id của một AI cụ thể. hand: auto|api|chrome */
+let nodes=[
+ {id:"a",type:"input",x:20,y:250,topic:"Làm 1 short YouTube 45 giây về mẹo tiết kiệm điện mùa đông"},
+ {id:"b",type:"ai",x:290,y:60,task:"điều tra",ai:"w2",hand:"auto"},
+ {id:"c",type:"ai",x:290,y:380,task:"kịch bản",ai:"w2",hand:"auto"},
+ {id:"d",type:"ai",x:560,y:60,task:"ảnh",ai:"auto",hand:"auto"},
+ {id:"e",type:"ai",x:560,y:380,task:"video",ai:"w3",hand:"auto"},
+ {id:"f",type:"ai",x:830,y:230,task:"kiểm tra",ai:"auto",hand:"auto"},
+ {id:"g",type:"publish",x:1100,y:90,platform:"YouTube",review:true},
+ {id:"h",type:"save",x:1100,y:400,path:"G:\\claude\\ailink\\short_01"}
+];
+let edges=[["a","b"],["b","c"],["c","d"],["c","e"],["d","f"],["e","f"],["f","g"],["f","h"]];
+let rt={}; /* trạng thái chạy: id -> {st,via,warn,out,msg} */
+let running=false, approvals={};
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const $=id=>document.getElementById(id);
+const cv=$("cv"), wires=$("wires");
+
+/* ---------- tab ---------- */
+function showTab(t){
+  $("p-flow").hidden=t!=="flow"; $("p-team").hidden=t!=="team";
+  $("tab-flow").setAttribute("aria-selected",t==="flow"); $("tab-team").setAttribute("aria-selected",t==="team");
+  if(t==="flow") renderNodes();
+}
+$("tab-flow").onclick=()=>showTab("flow"); $("tab-team").onclick=()=>showTab("team");
+
+/* ---------- node ---------- */
+const TITLE={input:"Đầu vào (lệnh của anh)",ai:"Node AI",publish:"Đăng bài",save:"Lưu file"};
+function allRoles(){return [...new Set(workers.flatMap(w=>w.roles))]}
+function nodeHTML(n){
+  const r=rt[n.id]||{st:"idle"};
+  const label={idle:"chờ",running:"đang làm",done:"xong",fail:"lỗi",skip:"bỏ qua",wait:"chờ anh duyệt"}[r.st];
+  let body="";
+  if(n.type==="input") body=`<label for="t${n.id}">Việc anh muốn làm</label><textarea id="t${n.id}" data-f="topic">${esc(n.topic)}</textarea>`;
+  if(n.type==="ai") body=`
+    <label for="k${n.id}">Việc (vai)</label>
+    <input type="text" id="k${n.id}" data-f="task" list="roles" value="${esc(n.task)}">
+    <label for="s${n.id}">AI thực hiện</label>
+    <select id="s${n.id}" data-f="ai"><option value="auto" ${n.ai==="auto"?"selected":""}>Tự chọn theo vai (Claude quyết)</option>
+      ${workers.map(w=>`<option value="${w.id}" ${n.ai===w.id?"selected":""}>${esc(w.name)}${w.on?"":" (đang tắt)"}</option>`).join("")}</select>
+    <label for="h${n.id}">Cách gọi</label>
+    <select id="h${n.id}" data-f="hand"><option value="auto" ${n.hand==="auto"?"selected":""}>Tự động (API trước, thiếu key thì Chrome)</option>
+      <option value="api" ${n.hand==="api"?"selected":""}>Chỉ API</option><option value="chrome" ${n.hand==="chrome"?"selected":""}>Chỉ Chrome</option></select>`;
+  if(n.type==="publish") body=`
+    <label for="p${n.id}">Đăng lên</label>
+    <select id="p${n.id}" data-f="platform">${["YouTube","Facebook","TikTok"].map(p=>`<option ${n.platform===p?"selected":""}>${p}</option>`).join("")}</select>
+    <label class="chk"><input type="checkbox" data-f="review" ${n.review?"checked":""}> Chờ anh duyệt trước khi đăng</label>`;
+  if(n.type==="save") body=`<label for="v${n.id}">Thư mục lưu</label><input type="text" id="v${n.id}" data-f="path" value="${esc(n.path)}">`;
+  const approve=r.st==="wait"?`<button class="primary" data-approve="${n.id}">Duyệt, cho đăng</button>`:"";
+  return `<div class="nhead"><span>${TITLE[n.type]}</span><span class="spacer"></span>${n.type==="input"?"":`<button class="x" data-del="${n.id}" aria-label="Xoá node">×</button>`}</div>
+  <div class="nbody">${body}
+    <span class="status ${r.st}">${label}</span>
+    ${r.via?`<div class="via">${esc(r.via)}</div>`:""}${r.warn?`<div class="via warn">${esc(r.warn)}</div>`:""}
+    ${r.out?`<div class="out">${esc(r.out)}</div>`:""}${approve}</div>
+  ${n.type==="input"?"":`<span class="port in" data-port="in" data-id="${n.id}"></span>`}<span class="port out" data-port="out" data-id="${n.id}"></span>`;
+}
+function renderNodes(){
+  cv.querySelectorAll(".node").forEach(e=>e.remove());
+  const dl=document.getElementById("roles"); if(dl) dl.remove();
+  const d=document.createElement("datalist"); d.id="roles"; d.innerHTML=allRoles().map(r=>`<option value="${esc(r)}">`).join(""); cv.appendChild(d);
+  nodes.forEach(n=>{
+    const el=document.createElement("div");
+    el.className=`node t-${n.type} ${(rt[n.id]||{}).st||""}`; el.dataset.id=n.id;
+    el.style.left=n.x+"px"; el.style.top=n.y+"px"; el.innerHTML=nodeHTML(n);
+    cv.appendChild(el);
+  });
+  requestAnimationFrame(drawWires);
+}
+function portPos(id,kind){
+  const p=cv.querySelector(`.port.${kind}[data-id="${id}"]`); if(!p) return null;
+  const a=p.getBoundingClientRect(), c=cv.getBoundingClientRect();
+  return {x:a.left-c.left+a.width/2, y:a.top-c.top+a.height/2};
+}
+function curve(a,b){const dx=Math.max(50,Math.abs(b.x-a.x)/2);return `M${a.x},${a.y} C${a.x+dx},${a.y} ${b.x-dx},${b.y} ${b.x},${b.y}`}
+function drawWires(tmp){
+  let h="";
+  edges.forEach(([f,t],i)=>{
+    const a=portPos(f,"out"), b=portPos(t,"in"); if(!a||!b) return;
+    const d=curve(a,b), live=(rt[f]||{}).st==="done";
+    h+=`<path class="hit" d="${d}" data-edge="${i}"/><path class="vis ${live?"live":""}" d="${d}"/>`;
+  });
+  if(tmp&&tmp.a) h+=`<path class="tmp" d="${curve(tmp.a,tmp.b)}"/>`;
+  wires.innerHTML=h;
+}
+wires.addEventListener("click",e=>{const i=e.target.dataset.edge; if(i!==undefined){edges.splice(+i,1);drawWires();}});
+
+/* sửa trường trong node */
+cv.addEventListener("change",e=>{
+  const el=e.target, host=el.closest(".node"); if(!host||!el.dataset.f) return;
+  const n=nodes.find(x=>x.id===host.dataset.id);
+  n[el.dataset.f]= el.type==="checkbox"?el.checked:el.value;
+});
+cv.addEventListener("input",e=>{
+  const el=e.target, host=el.closest(".node"); if(!host||!el.dataset.f||el.type==="checkbox"||el.tagName==="SELECT") return;
+  nodes.find(x=>x.id===host.dataset.id)[el.dataset.f]=el.value;
+});
+cv.addEventListener("click",e=>{
+  const d=e.target.dataset.del, ap=e.target.dataset.approve;
+  if(d){nodes=nodes.filter(n=>n.id!==d);edges=edges.filter(x=>x[0]!==d&&x[1]!==d);delete rt[d];renderNodes();}
+  if(ap&&approvals[ap]){approvals[ap]();}
+});
+
+/* kéo node + kéo dây */
+let drag=null;
+cv.addEventListener("pointerdown",e=>{
+  const head=e.target.closest(".nhead");
+  if(head&&!e.target.closest("button")){
+    const el=head.parentElement, n=nodes.find(x=>x.id===el.dataset.id);
+    drag={kind:"node",n,el,sx:e.clientX,sy:e.clientY,ox:n.x,oy:n.y}; head.setPointerCapture(e.pointerId); return;
+  }
+  const port=e.target.closest(".port.out");
+  if(port){drag={kind:"wire",from:port.dataset.id}; port.setPointerCapture(e.pointerId); e.preventDefault();}
+});
+cv.addEventListener("pointermove",e=>{
+  if(!drag) return;
+  if(drag.kind==="node"){
+    drag.n.x=Math.max(0,drag.ox+e.clientX-drag.sx); drag.n.y=Math.max(0,drag.oy+e.clientY-drag.sy);
+    drag.el.style.left=drag.n.x+"px"; drag.el.style.top=drag.n.y+"px"; drawWires();
+  }else{
+    const c=cv.getBoundingClientRect(); drawWires({a:portPos(drag.from,"out"),b:{x:e.clientX-c.left,y:e.clientY-c.top}});
+  }
+});
+function reaches(a,b){const seen=new Set([a]),q=[a];while(q.length){const x=q.pop();if(x===b)return true;edges.forEach(([f,t])=>{if(f===x&&!seen.has(t)){seen.add(t);q.push(t)}})}return false}
+cv.addEventListener("pointerup",e=>{
+  if(!drag) return;
+  if(drag.kind==="wire"){
+    const t=document.elementFromPoint(e.clientX,e.clientY), p=t&&t.closest&&t.closest(".port.in");
+    if(p){const to=p.dataset.id; if(to!==drag.from&&!edges.some(x=>x[0]===drag.from&&x[1]===to)&&!reaches(to,drag.from)) edges.push([drag.from,to]);}
+    drawWires();
+  }
+  drag=null;
+});
+$("addsel").onchange=function(){
+  const t=this.value; if(!t) return;
+  const k=nodes.length, base={id:nid(),type:t,x:40+(k%6)*24,y:520+(k%4)*18};
+  if(t==="ai") Object.assign(base,{task:"việc mới",ai:"auto",hand:"auto"});
+  if(t==="publish") Object.assign(base,{platform:"Facebook",review:true});
+  if(t==="save") Object.assign(base,{path:"G:\\claude\\ailink\\"});
+  nodes.push(base); this.value=""; renderNodes();
+};
+
+/* ---------- chạy mô phỏng ---------- */
+const OUT={
+ "điều tra":t=>`Ngách: ${t}\n- 3 kênh cùng ngách đang lên\n- Câu hỏi nhiều nhất: bật điều hoà mấy độ thì rẻ\n- Góc đề xuất: 3 thói quen đốt tiền điện`,
+ "kịch bản":t=>`HOOK 0-3s: "Hoá đơn điện cao vì đúng 3 thứ này."\nTHÂN: 3 mẹo x 10s\nKÊU GỌI: theo dõi kênh.`,
+ "ảnh":t=>`Đã tạo 4 ảnh bìa mẫu, chữ lớn, nền tối, nhấn cam.`,
+ "video":t=>`Đã tạo video 9:16, 45 giây, 6 cảnh khớp kịch bản (mẫu).`,
+ "kiểm tra":t=>`Đạt: hook rõ trong 3s, đủ 45s, không thấy vi phạm bản quyền. Đề nghị anh duyệt.`
+};
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function pickHand(w,mode){
+  const hasApi=w.api&&w.key.trim(), hasCh=w.chrome;
+  if(mode==="api") return hasApi?{via:"qua API"}:{err:`${w.name}: chọn "Chỉ API" nhưng chưa có API key.`};
+  if(mode==="chrome") return hasCh?{via:"qua "+w.prof}:{err:`${w.name}: chọn "Chỉ Chrome" nhưng chưa bật tay Chrome.`};
+  if(hasApi) return {via:"qua API"};
+  if(hasCh) return {via:"qua "+w.prof,warn:w.api?"Chưa có API key, chuyển sang Chrome.":""};
+  return {err:`${w.name} không có tay nào dùng được (thiếu key, chưa bật Chrome).`};
+}
+function setRt(id,v){rt[id]=Object.assign(rt[id]||{},v);renderNodes();}
+async function execNode(n,topic){
+  if(n.type==="input"){setRt(n.id,{st:"done",out:n.topic});return;}
+  if(n.type==="save"){setRt(n.id,{st:"running"});await sleep(500);setRt(n.id,{st:"done",out:"Đã lưu: "+n.path+" (giả lập)"});return;}
+  if(n.type==="publish"){
+    if(n.review){
+      setRt(n.id,{st:"wait",out:"Bản mẫu sẵn sàng. Anh duyệt thì em mới đăng lên "+n.platform+"."});
+      await new Promise(res=>approvals[n.id]=res); delete approvals[n.id];
+    }
+    setRt(n.id,{st:"running",out:""}); await sleep(700);
+    setRt(n.id,{st:"done",out:"Đã đăng lên "+n.platform+" (giả lập, chưa đăng thật)."}); return;
+  }
+  let w = n.ai==="auto" ? workers.find(x=>x.on&&x.roles.some(r=>r.toLowerCase()===n.task.trim().toLowerCase())) : workers.find(x=>x.id===n.ai);
+  if(!w){setRt(n.id,{st:"fail",out:`Chưa có AI nào nhận việc "${n.task}". Chọn AI trong ô thả xuống hoặc thêm vai ở tab Đội AI.`});return;}
+  if(!w.on){setRt(n.id,{st:"fail",out:w.name+" đang tắt."});return;}
+  const h=pickHand(w,n.hand);
+  if(h.err){setRt(n.id,{st:"fail",out:h.err});return;}
+  setRt(n.id,{st:"running",via:`${w.name} ${h.via}`,warn:h.warn||"",out:""});
+  await sleep(900+Math.random()*800);
+  const f=OUT[n.task.trim().toLowerCase()];
+  setRt(n.id,{st:"done",out:f?f(topic):`Kết quả mẫu của việc "${n.task}" do ${w.name} làm.`});
+}
+$("run").onclick=async function(){
+  if(running) return; running=true; this.disabled=true; rt={};
+  const topic=(nodes.find(n=>n.type==="input")||{}).topic||"";
+  renderNodes();
+  const idle=new Set(nodes.map(n=>n.id));
+  while(idle.size){
+    const ready=[...idle].filter(id=>edges.filter(e=>e[1]===id).every(e=>!idle.has(e[0])&&!approvals[e[0]]));
+    if(!ready.length) break;
+    await Promise.all(ready.map(async id=>{
+      idle.delete(id); const n=nodes.find(x=>x.id===id);
+      const bad=edges.some(e=>e[1]===id&&["fail","skip"].includes((rt[e[0]]||{}).st));
+      if(bad){setRt(id,{st:"skip",out:"Bỏ qua vì bước trước chưa xong."});return;}
+      await execNode(n,topic);
+    }));
+  }
+  running=false; this.disabled=false;
+};
+$("reset").onclick=()=>{rt={};renderNodes();};
+
+/* ---------- tab Đội AI ---------- */
+function renderWorkers(){
+  $("workers").innerHTML=workers.map((w,i)=>`
+  <div class="worker ${w.on?"":"off"}">
+    <div class="wtop"><span class="wname">${esc(w.name)}</span><span class="spacer"></span>
+      <label class="chk" style="margin:0"><input type="checkbox" data-i="${i}" data-f="on" ${w.on?"checked":""}> Bật</label>
+      <button data-del="${i}" aria-label="Xoá ${esc(w.name)}">Xoá</button></div>
+    <div class="chips">${w.roles.map(r=>`<span class="chip">${esc(r)}</span>`).join("")}</div>
+    <label for="wn${i}">Tên AI</label><input type="text" id="wn${i}" data-i="${i}" data-f="name" value="${esc(w.name)}">
+    <label for="wr${i}" style="margin-top:6px">Việc riêng (cách nhau bằng dấu phẩy)</label>
+    <input type="text" id="wr${i}" data-i="${i}" data-f="roles" value="${esc(w.roles.join(", "))}">
+    <div class="hands">
+      <div class="hand"><label class="chk"><input type="checkbox" data-i="${i}" data-f="api" ${w.api?"checked":""}> <b>Tay API</b></label>
+        <label for="wk${i}">API key</label><input type="password" id="wk${i}" data-i="${i}" data-f="key" value="${esc(w.key)}" placeholder="chưa có key"></div>
+      <div class="hand"><label class="chk"><input type="checkbox" data-i="${i}" data-f="chrome" ${w.chrome?"checked":""}> <b>Tay Chrome</b></label>
+        <label for="wp${i}">Trình duyệt</label><select id="wp${i}" data-i="${i}" data-f="prof">${BROWSERS.map(b=>`<option ${b===w.prof?"selected":""}>${b}</option>`).join("")}</select></div>
+    </div>
+  </div>`).join("");
+}
+$("workers").addEventListener("change",e=>{
+  const t=e.target,i=t.dataset.i,f=t.dataset.f; if(i===undefined) return; const w=workers[i];
+  if(["on","api","chrome"].includes(f)) w[f]=t.checked;
+  else if(f==="roles") w.roles=t.value.split(",").map(s=>s.trim()).filter(Boolean);
+  else w[f]=t.value;
+  renderWorkers();
+});
+$("workers").addEventListener("click",e=>{
+  const d=e.target.dataset.del; if(d===undefined) return;
+  const id=workers[+d].id; workers.splice(+d,1);
+  nodes.forEach(n=>{if(n.ai===id)n.ai="auto"}); renderWorkers();
+});
+$("addw").onclick=()=>{workers.push({id:"w"+(uid++)+"x",name:"AI mới "+(workers.length+1),roles:["việc mới"],on:true,api:false,key:"",chrome:true,prof:"Cốc Cốc"});renderWorkers();};
+
+renderWorkers(); renderNodes();
+window.addEventListener("resize",()=>drawWires());
+</script>
