@@ -1,0 +1,98 @@
+{
+  "phien_ban": 1,
+  "ten": "Kiểm duyệt nội dung có sẵn",
+  "mo_ta": "Dán kịch bản/tiêu đề có sẵn → kiểm duyệt 2 lớp (luật + AI) → đạt thì báo xanh; cần xem / chặn thì AI viết bản sửa và báo anh.",
+  "nodes": [
+    {
+      "id": "bat_dau",
+      "loai": "bat_dau",
+      "cai_dat": {
+        "goi_y_nhap": "Dán kịch bản + tiêu đề"
+      },
+      "vi_tri": [
+        40,
+        160
+      ]
+    },
+    {
+      "id": "kiem_duyet",
+      "loai": "kiem_duyet",
+      "cai_dat": {
+        "nen_tang": [
+          "youtube",
+          "facebook"
+        ],
+        "tu_cam": []
+      },
+      "vi_tri": [
+        260,
+        160
+      ]
+    },
+    {
+      "id": "bao_dat",
+      "loai": "nhan_tin",
+      "cai_dat": {
+        "qua": [
+          "telegram"
+        ],
+        "noi_dung": "✅ Nội dung đạt kiểm duyệt."
+      },
+      "vi_tri": [
+        500,
+        40
+      ]
+    },
+    {
+      "id": "sua",
+      "loai": "hoi_ai",
+      "cai_dat": {
+        "vai": "kiem_duyet",
+        "lenh": "Viết lại nội dung sau cho hết vi phạm, giữ ý chính.\nVi phạm: {{kiem_duyet.vi_pham}}\nNội dung gốc:\n{{input}}"
+      },
+      "vi_tri": [
+        500,
+        220
+      ]
+    },
+    {
+      "id": "bao_sua",
+      "loai": "nhan_tin",
+      "cai_dat": {
+        "qua": [
+          "telegram"
+        ],
+        "noi_dung": "⚠️ Kiểm duyệt: {{kiem_duyet.ket_luan}}\n{{kiem_duyet.van_ban}}\n\nBản sửa đề xuất:\n{{sua}}"
+      },
+      "vi_tri": [
+        720,
+        220
+      ]
+    }
+  ],
+  "day": [
+    {
+      "tu": "bat_dau",
+      "den": "kiem_duyet"
+    },
+    {
+      "tu": "kiem_duyet",
+      "den": "bao_dat",
+      "cong": "dat"
+    },
+    {
+      "tu": "kiem_duyet",
+      "den": "sua",
+      "cong": "can_xem"
+    },
+    {
+      "tu": "kiem_duyet",
+      "den": "sua",
+      "cong": "chan"
+    },
+    {
+      "tu": "sua",
+      "den": "bao_sua"
+    }
+  ]
+}

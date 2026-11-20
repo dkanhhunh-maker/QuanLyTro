@@ -1,7 +1,0 @@
-{
-  "name": "Thu nghiem (khong ton tien, provider mock)",
-  "steps": [
-    {"name": "a", "provider": "mock", "prompt": "Buoc A nhan: {{input}}"},
-    {"name": "b", "provider": "mock", "prompt": "Buoc B nhan tu A: {{prev}}"}
-  ]
-}

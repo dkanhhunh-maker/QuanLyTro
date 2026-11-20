@@ -1,0 +1,141 @@
+{
+  "phien_ban": 1,
+  "ten": "1 nội dung → 3 ngôn ngữ",
+  "mo_ta": "Viết gốc tiếng Việt, rồi Cho mỗi ngôn ngữ: dịch + bản địa hoá → giọng đọc → kiểm duyệt; gộp 3 bản, anh duyệt 1 lần rồi đăng.",
+  "nodes": [
+    {
+      "id": "bat_dau",
+      "loai": "bat_dau",
+      "cai_dat": {},
+      "vi_tri": [
+        40,
+        200
+      ]
+    },
+    {
+      "id": "goc",
+      "loai": "kich_ban_short",
+      "cai_dat": {},
+      "vi_tri": [
+        220,
+        200
+      ]
+    },
+    {
+      "id": "moi_ngon_ngu",
+      "loai": "cho_moi",
+      "cai_dat": {
+        "danh_sach": [
+          "vi",
+          "en",
+          "ja"
+        ],
+        "ket_thuc": "gop_ban",
+        "song_song": 3
+      },
+      "vi_tri": [
+        400,
+        200
+      ]
+    },
+    {
+      "id": "dich",
+      "loai": "dich",
+      "cai_dat": {
+        "den": "{{phan_tu}}"
+      },
+      "vi_tri": [
+        580,
+        200
+      ]
+    },
+    {
+      "id": "giong",
+      "loai": "giong_doc",
+      "cai_dat": {},
+      "vi_tri": [
+        760,
+        200
+      ]
+    },
+    {
+      "id": "kiem_duyet",
+      "loai": "kiem_duyet",
+      "cai_dat": {},
+      "vi_tri": [
+        940,
+        200
+      ]
+    },
+    {
+      "id": "gop_ban",
+      "loai": "gop",
+      "cai_dat": {
+        "kieu": "danh_sach"
+      },
+      "vi_tri": [
+        1120,
+        200
+      ]
+    },
+    {
+      "id": "duyet",
+      "loai": "cho_duyet",
+      "cai_dat": {},
+      "vi_tri": [
+        1300,
+        200
+      ]
+    },
+    {
+      "id": "dang",
+      "loai": "dang_bai",
+      "cai_dat": {},
+      "vi_tri": [
+        1480,
+        200
+      ]
+    }
+  ],
+  "day": [
+    {
+      "tu": "bat_dau",
+      "den": "goc"
+    },
+    {
+      "tu": "goc",
+      "den": "moi_ngon_ngu"
+    },
+    {
+      "tu": "moi_ngon_ngu",
+      "den": "dich"
+    },
+    {
+      "tu": "dich",
+      "den": "giong"
+    },
+    {
+      "tu": "giong",
+      "den": "kiem_duyet"
+    },
+    {
+      "tu": "kiem_duyet",
+      "den": "gop_ban",
+      "cong": "dat"
+    },
+    {
+      "tu": "kiem_duyet",
+      "den": "gop_ban",
+      "cong": "can_xem"
+    },
+    {
+      "tu": "gop_ban",
+      "den": "duyet"
+    },
+    {
+      "tu": "duyet",
+      "den": "dang",
+      "cong": "duyet"
+    }
+  ]
+}

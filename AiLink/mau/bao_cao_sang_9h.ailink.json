@@ -1,0 +1,146 @@
+{
+  "phien_ban": 1,
+  "ten": "Báo cáo 9h sáng",
+  "mo_ta": "Đọc view mọi kênh + nghiên cứu ngách + tin AI/YouTube → AI báo cáo gửi Telegram, lưu file .md, cập nhật dashboard Kênh Mới.",
+  "nodes": [
+    {
+      "id": "hen_gio",
+      "loai": "hen_gio",
+      "cai_dat": {
+        "lich": {
+          "kieu": "hang_ngay",
+          "gio": "09:00"
+        },
+        "dau_vao": "Báo cáo sáng"
+      },
+      "vi_tri": [
+        40,
+        200
+      ]
+    },
+    {
+      "id": "view",
+      "loai": "doc_view",
+      "cai_dat": {
+        "kenh": "tat_ca",
+        "khoang": "24h"
+      },
+      "vi_tri": [
+        260,
+        60
+      ]
+    },
+    {
+      "id": "ngach",
+      "loai": "nghien_cuu_ngach",
+      "cai_dat": {
+        "so_y_tuong": 5
+      },
+      "vi_tri": [
+        260,
+        200
+      ]
+    },
+    {
+      "id": "tin_ai",
+      "loai": "hoi_ai",
+      "cai_dat": {
+        "vai": "nghien_cuu",
+        "lenh": "Tóm tắt 5 tin AI và YouTube đáng chú ý trong 24h qua (ngày {{ngay}}), mỗi tin 1 dòng kèm nguồn. Tin nào không chắc thì ghi 'chưa chắc'."
+      },
+      "vi_tri": [
+        260,
+        340
+      ]
+    },
+    {
+      "id": "gom",
+      "loai": "gop",
+      "cai_dat": {
+        "che_do": "cho_tat_ca",
+        "kieu": "doi_tuong"
+      },
+      "vi_tri": [
+        480,
+        200
+      ]
+    },
+    {
+      "id": "bao_cao",
+      "loai": "bao_cao_ai",
+      "cai_dat": {
+        "loai": "sang_9h",
+        "dinh_dang": "telegram",
+        "do_dai": "vua",
+        "luu_file": true
+      },
+      "vi_tri": [
+        680,
+        200
+      ]
+    },
+    {
+      "id": "gui",
+      "loai": "nhan_tin",
+      "cai_dat": {
+        "qua": [
+          "telegram"
+        ],
+        "noi_dung": "{{bao_cao.van_ban}}"
+      },
+      "vi_tri": [
+        900,
+        200
+      ]
+    },
+    {
+      "id": "dashboard",
+      "loai": "cap_nhat_dashboard",
+      "cai_dat": {
+        "ten": "kenh_moi"
+      },
+      "vi_tri": [
+        480,
+        40
+      ]
+    }
+  ],
+  "day": [
+    {
+      "tu": "hen_gio",
+      "den": "view"
+    },
+    {
+      "tu": "hen_gio",
+      "den": "ngach"
+    },
+    {
+      "tu": "hen_gio",
+      "den": "tin_ai"
+    },
+    {
+      "tu": "view",
+      "den": "gom"
+    },
+    {
+      "tu": "ngach",
+      "den": "gom"
+    },
+    {
+      "tu": "tin_ai",
+      "den": "gom"
+    },
+    {
+      "tu": "view",
+      "den": "dashboard"
+    },
+    {
+      "tu": "gom",
+      "den": "bao_cao"
+    },
+    {
+      "tu": "bao_cao",
+      "den": "gui"
+    }
+  ]
+}

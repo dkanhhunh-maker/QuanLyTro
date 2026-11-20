@@ -1,0 +1,171 @@
+{
+  "phien_ban": 1,
+  "ten": "Phiên dịch video nước ngoài → bản tiếng Việt",
+  "mo_ta": "Tải video (bắt buộc ghi loại nguồn) → tách lời → dịch → phụ đề .srt + lồng tiếng → kiểm duyệt → chờ duyệt. Nguồn 'chưa rõ' thì không cho đăng.",
+  "nodes": [
+    {
+      "id": "bat_dau",
+      "loai": "bat_dau",
+      "cai_dat": {
+        "goi_y_nhap": "Link video"
+      },
+      "vi_tri": [
+        40,
+        200
+      ]
+    },
+    {
+      "id": "tai",
+      "loai": "tai_video_nguon",
+      "cai_dat": {
+        "link": "{{input}}",
+        "loai_nguon": "co_giay_phep",
+        "ghi_nguon": "Tác giả, link gốc"
+      },
+      "vi_tri": [
+        220,
+        200
+      ]
+    },
+    {
+      "id": "tach_loi",
+      "loai": "tach_loi",
+      "cai_dat": {},
+      "vi_tri": [
+        400,
+        140
+      ]
+    },
+    {
+      "id": "tach_giong",
+      "loai": "tach_giong",
+      "cai_dat": {},
+      "vi_tri": [
+        400,
+        280
+      ]
+    },
+    {
+      "id": "dich",
+      "loai": "dich",
+      "cai_dat": {
+        "den": "vi"
+      },
+      "vi_tri": [
+        580,
+        140
+      ]
+    },
+    {
+      "id": "phu_de",
+      "loai": "chen_phu_de",
+      "cai_dat": {},
+      "vi_tri": [
+        760,
+        60
+      ]
+    },
+    {
+      "id": "long_tieng",
+      "loai": "long_tieng",
+      "cai_dat": {},
+      "vi_tri": [
+        760,
+        220
+      ]
+    },
+    {
+      "id": "gom",
+      "loai": "gop",
+      "cai_dat": {},
+      "vi_tri": [
+        940,
+        160
+      ]
+    },
+    {
+      "id": "kiem_duyet",
+      "loai": "kiem_duyet",
+      "cai_dat": {},
+      "vi_tri": [
+        1100,
+        160
+      ]
+    },
+    {
+      "id": "duyet",
+      "loai": "cho_duyet",
+      "cai_dat": {},
+      "vi_tri": [
+        1260,
+        160
+      ]
+    },
+    {
+      "id": "dang",
+      "loai": "dang_bai",
+      "cai_dat": {},
+      "vi_tri": [
+        1420,
+        160
+      ]
+    }
+  ],
+  "day": [
+    {
+      "tu": "bat_dau",
+      "den": "tai"
+    },
+    {
+      "tu": "tai",
+      "den": "tach_loi"
+    },
+    {
+      "tu": "tai",
+      "den": "tach_giong"
+    },
+    {
+      "tu": "tach_loi",
+      "den": "dich"
+    },
+    {
+      "tu": "tach_loi",
+      "den": "phu_de"
+    },
+    {
+      "tu": "dich",
+      "den": "long_tieng"
+    },
+    {
+      "tu": "tach_giong",
+      "den": "long_tieng"
+    },
+    {
+      "tu": "phu_de",
+      "den": "gom"
+    },
+    {
+      "tu": "long_tieng",
+      "den": "gom"
+    },
+    {
+      "tu": "gom",
+      "den": "kiem_duyet"
+    },
+    {
+      "tu": "kiem_duyet",
+      "den": "duyet",
+      "cong": "dat"
+    },
+    {
+      "tu": "kiem_duyet",
+      "den": "duyet",
+      "cong": "can_xem"
+    },
+    {
+      "tu": "duyet",
+      "den": "dang",
+      "cong": "duyet"
+    }
+  ]
+}
