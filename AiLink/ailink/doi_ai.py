@@ -39,7 +39,7 @@ class KetQuaGoi:
 
 class DoiAI:
     def __init__(self, doi=None, home=None, cho_phep_gia_lap=True, thu_lai=None, cho_giay=None,
-                 lay_key=None):
+                 lay_key=None, cham_gia_lap=None):
         home = home or config.HOME
         cd = config.cai_dat(home)
         self.doi = doi if doi is not None else config.doc_json(os.path.join(home, "doi_ai.json"), DOI_MAC_DINH)
@@ -47,6 +47,7 @@ class DoiAI:
         self.thu_lai = cd["thu_lai"] if thu_lai is None else thu_lai
         self.cho_giay = cd["cho_thu_lai_giay"] if cho_giay is None else cho_giay
         self.lay_key = lay_key or kho_key.lay
+        self.cham_gia_lap = cd.get("gia_lap_cham_giay", 0) if cham_gia_lap is None else cham_gia_lap
         self._khoa = {}
         self._khoa_lock = threading.Lock()
 
@@ -97,6 +98,8 @@ class DoiAI:
                     return KetQuaGoi(kq, ten, tay, self.chi_phi(ten, kq), canh_bao, nhat_ky)
         if self.cho_phep_gia_lap and not loi_that:
             canh_bao.append(f"{dau}: chưa có key/tay dùng được → chạy AI giả lập")
+            if self.cham_gia_lap:
+                time.sleep(self.cham_gia_lap)
             kq = providers.build("gia_lap", {"type": "gia_lap"}).complete(prompt, system, model, gia_lap)
             return KetQuaGoi(kq, "gia_lap", "api", 0.0, canh_bao, nhat_ky)
         raise providers.AIError("Mọi AI đều lỗi: " + " | ".join(loi_that or nhat_ky or ["không có AI nào dùng được"]))
@@ -106,6 +109,8 @@ class DoiAI:
         for lan in range(self.thu_lai + 1):
             try:
                 with sem:
+                    if isinstance(prov, providers.GiaLap) and self.cham_gia_lap:
+                        time.sleep(self.cham_gia_lap)
                     return prov.complete(prompt, system, model, gia_lap)
             except providers.LoiHanMuc as e:
                 nhat_ky.append(f"{ten}: hết hạn mức → chuyển tay/AI khác ({e})")

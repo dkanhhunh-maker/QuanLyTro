@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="vi" data-theme="studio">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AiLink Điều Phối</title>
+<link rel="stylesheet" href="/ui/app.css">
+</head>
+<body>
+<header class="top">
+  <div class="logo"><span class="logo-dot"></span>AiLink</div>
+  <nav class="tabs" role="tablist">
+    <button class="tab" role="tab" data-tab="so_do" aria-selected="true">Sơ đồ</button>
+    <button class="tab" role="tab" data-tab="duyet">Duyệt <span class="badge" id="badge-duyet" hidden>0</span></button>
+    <button class="tab" role="tab" data-tab="kenh">Kênh</button>
+    <button class="tab" role="tab" data-tab="lich_su">Lịch sử</button>
+    <button class="tab" role="tab" data-tab="doi_ai">Đội AI</button>
+    <button class="tab" role="tab" data-tab="cai_dat">Cài đặt</button>
+  </nav>
+  <span class="grow"></span>
+  <label class="theme-pick">Chủ đề
+    <select id="chu-de">
+      <option value="tu_dong">Tự động theo giờ</option>
+      <option value="neon">Neon Lab</option>
+      <option value="studio">Studio sáng</option>
+      <option value="ban_ve">Bản vẽ kỹ thuật</option>
+      <option value="kinh_mo">Kính mờ</option>
+    </select>
+  </label>
+</header>
+
+<main>
+<!-- ============ SƠ ĐỒ ============ -->
+<section id="p-so_do" class="page flow-page">
+  <aside class="palette panel">
+    <input type="search" id="tim-node" placeholder="Tìm node… (báo cáo, kiểm duyệt)">
+    <div id="ds-node"></div>
+  </aside>
+  <div class="center">
+    <div class="toolbar panel">
+      <select id="chon-so-do" title="Mở sơ đồ"></select>
+      <button id="nut-moi">Mới</button>
+      <button id="nut-luu">Lưu</button>
+      <button id="nut-kiem">Kiểm tra</button>
+      <span class="sep"></span>
+      <input id="dau-vao" type="text" placeholder="Đầu vào: chủ đề, link, ý tưởng…">
+      <select id="chon-kenh" title="Kênh"></select>
+      <button class="primary" id="nut-chay">▶ Chạy</button>
+      <span class="run-chip" id="run-chip" hidden></span>
+    </div>
+    <div class="zoom" style="top:62px;right:12px"><button id="zoom-nho" title="Thu nhỏ">−</button><button id="zoom-vua" title="Vừa khung">⤢</button><button id="zoom-to" title="Phóng to">+</button></div>
+    <div class="canvas-wrap panel" id="cv-wrap">
+      <div class="canvas" id="cv">
+        <svg class="wires" id="wires"></svg>
+      </div>
+    </div>
+    <div class="hint">Kéo node từ cột trái vào khung · kéo từ chấm bên phải sang chấm bên trái để nối · nối ngược lại node phía trước = vòng lặp (nét đứt tím) · Delete để xoá thứ đang chọn</div>
+  </div>
+  <aside class="inspector panel" id="inspector"></aside>
+</section>
+
+<!-- ============ DUYỆT ============ -->
+<section id="p-duyet" class="page" hidden>
+  <div class="page-head"><h2>Chờ anh duyệt</h2><span class="muted">Chưa duyệt thì không bao giờ đăng. Sửa: AI làm lại đúng phần anh ghi.</span><span class="grow"></span><button id="nut-tai-duyet">Tải lại</button></div>
+  <div id="ds-duyet" class="cards"></div>
+</section>
+
+<!-- ============ KÊNH ============ -->
+<section id="p-kenh" class="page" hidden>
+  <div class="page-head"><h2>Hồ sơ kênh</h2><span class="muted">AI đọc hồ sơ trước mọi việc, nên cùng 1 sơ đồ ra đúng giọng từng kênh.</span><span class="grow"></span><button class="primary" id="nut-kenh-moi">+ Kênh mới</button></div>
+  <div class="split">
+    <div id="ds-kenh" class="list"></div>
+    <form id="form-kenh" class="panel form" hidden></form>
+  </div>
+</section>
+
+<!-- ============ LỊCH SỬ ============ -->
+<section id="p-lich_su" class="page" hidden>
+  <div class="page-head"><h2>Lịch sử chạy</h2><span class="muted">Bấm 1 lần chạy để mở sơ đồ đúng trạng thái lúc đó.</span><span class="grow"></span><button id="nut-tai-ls">Tải lại</button></div>
+  <div class="panel"><table class="tbl" id="bang-ls"></table></div>
+</section>
+
+<!-- ============ ĐỘI AI ============ -->
+<section id="p-doi_ai" class="page" hidden>
+  <div class="page-head"><h2>Đội AI</h2><span class="muted">Mỗi AI có 2 tay: API (key) và Chrome (đã đăng nhập). Chưa có key thì chạy AI giả lập. Nhập key: giai đoạn 3.</span></div>
+  <div id="ds-ai" class="cards"></div>
+</section>
+
+<!-- ============ CÀI ĐẶT ============ -->
+<section id="p-cai_dat" class="page" hidden>
+  <div class="page-head"><h2>Cài đặt</h2></div>
+  <form id="form-cai-dat" class="panel form narrow"></form>
+</section>
+</main>
+
+<div id="toast" class="toast" hidden></div>
+<script src="/ui/app.js"></script>
+</body>
+</html>

@@ -15,7 +15,7 @@
       },
       "vi_tri": [
         40,
-        200
+        220
       ]
     },
     {
@@ -26,8 +26,8 @@
         "khoang": "24h"
       },
       "vi_tri": [
-        260,
-        60
+        299,
+        80
       ]
     },
     {
@@ -37,8 +37,8 @@
         "so_y_tuong": 5
       },
       "vi_tri": [
-        260,
-        200
+        299,
+        220
       ]
     },
     {
@@ -49,8 +49,8 @@
         "lenh": "Tóm tắt 5 tin AI và YouTube đáng chú ý trong 24h qua (ngày {{ngay}}), mỗi tin 1 dòng kèm nguồn. Tin nào không chắc thì ghi 'chưa chắc'."
       },
       "vi_tri": [
-        260,
-        340
+        299,
+        360
       ]
     },
     {
@@ -61,8 +61,8 @@
         "kieu": "doi_tuong"
       },
       "vi_tri": [
-        480,
-        200
+        559,
+        220
       ]
     },
     {
@@ -75,8 +75,8 @@
         "luu_file": true
       },
       "vi_tri": [
-        680,
-        200
+        795,
+        220
       ]
     },
     {
@@ -89,8 +89,8 @@
         "noi_dung": "{{bao_cao.van_ban}}"
       },
       "vi_tri": [
-        900,
-        200
+        1054,
+        220
       ]
     },
     {
@@ -100,8 +100,8 @@
         "ten": "kenh_moi"
       },
       "vi_tri": [
-        480,
-        40
+        559,
+        60
       ]
     }
   ],

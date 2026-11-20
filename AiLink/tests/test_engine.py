@@ -61,7 +61,7 @@ class Co(unittest.TestCase):
     def setUp(self):
         self.home = tempfile.mkdtemp()
         os.environ["AILINK_HOME"] = self.home
-        self.doi = DoiAI(home=self.home, cho_giay=[0], lay_key=lambda t: "")
+        self.doi = DoiAI(home=self.home, cho_giay=[0], cham_gia_lap=0, lay_key=lambda t: "")
 
     def tearDown(self):
         shutil.rmtree(self.home, ignore_errors=True)
@@ -260,7 +260,7 @@ class TestEngine(Co):
         doi = dict(DOI_MAC_DINH)
         doi["dat"] = {"vai": [], "api": {"type": "gia_lap"}, "gia": {"vao_1m": 1e6, "ra_1m": 0}}
         sd = SD([N("a", "bat_dau"), N("x", "hoi_ai", ai="dat"), N("y", "hoi_ai", ai="dat")], [D("a", "x"), D("x", "y")])
-        l = self.lan(sd, doi=DoiAI(doi=doi, home=self.home, cho_giay=[0]), tran_chi_phi=0.5)
+        l = self.lan(sd, doi=DoiAI(doi=doi, home=self.home, cho_giay=[0], cham_gia_lap=0), tran_chi_phi=0.5)
         self.assertEqual(l.chay(), "dung_chi_phi")
         self.assertEqual(l.st["nodes"]["y"]["trang_thai"], "cho")
 
@@ -274,7 +274,7 @@ class TestDoiAI(Co):
     def test_tu_chon_theo_vai_va_du_phong(self):
         doi = {"hong": {"vai": ["kich_ban"], "api": {"type": "gia_lap", "loi_gia_lap": "chung"}},
                "tot": {"vai": ["kich_ban"], "api": {"type": "gia_lap"}}}
-        d = DoiAI(doi=doi, home=self.home, cho_giay=[0], thu_lai=2)
+        d = DoiAI(doi=doi, home=self.home, cho_giay=[0], cham_gia_lap=0, thu_lai=2)
         kq = d.goi("viết", ai="hong", du_phong=["tot"])
         self.assertEqual(kq.ai, "tot")
         self.assertEqual(sum("hong: lỗi lần" in x for x in kq.nhat_ky), 3)  # 1 lần + 2 lần thử lại
@@ -282,14 +282,14 @@ class TestDoiAI(Co):
     def test_het_han_muc_khong_thu_lai(self):
         doi = {"a": {"vai": [], "api": {"type": "gia_lap", "loi_gia_lap": "han_muc"}},
                "b": {"vai": [], "api": {"type": "gia_lap"}}}
-        d = DoiAI(doi=doi, home=self.home, cho_giay=[0], thu_lai=2)
+        d = DoiAI(doi=doi, home=self.home, cho_giay=[0], cham_gia_lap=0, thu_lai=2)
         kq = d.goi("x", ai="a", du_phong=["b"])
         self.assertEqual(kq.ai, "b")
         self.assertEqual(sum("lỗi lần" in x for x in kq.nhat_ky), 0)
 
     def test_moi_ai_loi_thi_bao_loi(self):
         doi = {"a": {"vai": [], "api": {"type": "gia_lap", "loi_gia_lap": "key"}}}
-        d = DoiAI(doi=doi, home=self.home, cho_giay=[0])
+        d = DoiAI(doi=doi, home=self.home, cho_giay=[0], cham_gia_lap=0)
         with self.assertRaises(providers.AIError):
             d.goi("x", ai="a")
 

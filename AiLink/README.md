@@ -7,21 +7,30 @@ Bản đặc tả v1: https://claude.ai/artifact/PgKkVHyr1i4EQdcyjycBWX
 
 | Giai đoạn | Nội dung | Trạng thái |
 | --- | --- | --- |
-| 1 | Engine đồ thị + AI giả lập + 40 loại node + 9 sơ đồ mẫu | **Xong**, 33 test qua |
-| 2 | Giao diện node thật (pywebview), tab Sơ đồ / Kênh / Duyệt, 4 chủ đề, hiệu ứng sạc điện | Đang làm |
+| 1 | Engine đồ thị + AI giả lập + 40 loại node + 9 sơ đồ mẫu | **Xong** |
+| 2 | Giao diện node thật: tab Sơ đồ / Duyệt / Kênh / Lịch sử / Đội AI / Cài đặt, 4 chủ đề + tự động theo giờ, hiệu ứng sạc điện, cửa sổ pywebview | **Xong** (thử trên Chromium; chưa thử .exe trên Windows) |
 | 3–7 | Tay API, tay Chrome, hẹn giờ + Telegram, âm thanh + CapCut + đăng bài, đa ngôn ngữ | Chưa |
 
 Quyết định đã duyệt: kiến trúc Python + giao diện web trong cửa sổ riêng + .exe; 3 thị trường đầu VN, US, JP;
 Telegram là kênh duyệt chính, Zalo chỉ báo tin; trần chi phí mặc định 5 USD/ngày, 100 USD/tháng (sửa trong cai_dat.json).
 
-## Chạy thử (không cần key, không tốn tiền)
+## Mở app trên Windows
+
+    cd AiLink
+    pip install -r requirements.txt     # pywebview cho cửa sổ riêng (không cài thì mở bằng trình duyệt)
+    python app.py                        # hoặc build_exe.bat → dist\AiLink.exe
+
+Giao diện mở ở cửa sổ riêng, chỉ nghe 127.0.0.1:8765. Lõi chạy trong cùng tiến trình.
+AI giả lập chờ 1 giây mỗi lần để anh thấy hiệu ứng (đổi `gia_lap_cham_giay` trong `cai_dat.json`).
+
+## Chạy bằng dòng lệnh (không cần key, không tốn tiền)
 
     cd AiLink
     python -m ailink node                                    # xem 40 loại node + ví dụ
     python -m ailink chay mau/short_youtube.ailink.json "Bí ẩn tam giác Bermuda" --kenh vn_chuyen_la
     python -m ailink duyet <id_lan> duyet duyet              # anh bấm Duyệt (hoặc sua "yêu cầu" / bo)
     python -m ailink chay mau/bao_cao_sang_9h.ailink.json    # AI báo cáo 9h sáng
-    python -m unittest discover -s tests                     # chạy test
+    python -m unittest discover -s tests                     # 40 test
 
 Chưa có key thì mọi node AI tự rơi về **AI giả lập** và ghi cảnh báo. Dữ liệu nằm ở `G:\claude\AiLink`
 (hoặc biến môi trường `AILINK_HOME`): `so_do\ kenh\ lan_chay\ cache\ xuat\ kich_ban_chrome\`.
@@ -138,4 +147,6 @@ Biến trong lệnh: `{{input}}`, `{{prev}}`, `{{id_node}}`, `{{id_node.truong}}
 - `ailink/nodes/` — 40 loại node theo nhóm.
 - `ailink/doi_ai.py` — Đội AI: chọn theo vai, thử lại, chuyển tay, AI dự phòng, rơi về giả lập.
 - `ailink/providers.py` — tay API (Claude, kiểu OpenAI, Gemini) + AI giả lập. `ailink/kho_key.py` — key qua Windows Credential Manager.
+- `ailink/server.py` — API cho giao diện (HTTP + Server-Sent Events thay WebSocket, chỉ thư viện chuẩn), chặn truy cập không phải từ máy anh.
+- `ailink/ui/` — giao diện (HTML/CSS/JS, không cần mạng). `app.py` — mở cửa sổ.
 - `ailink/kenh.py` — hồ sơ kênh. `tools/tao_mau.py` — sinh sơ đồ mẫu.

@@ -11,7 +11,7 @@
       },
       "vi_tri": [
         40,
-        160
+        180
       ]
     },
     {
@@ -25,8 +25,8 @@
         "tu_cam": []
       },
       "vi_tri": [
-        260,
-        160
+        299,
+        180
       ]
     },
     {
@@ -39,8 +39,8 @@
         "noi_dung": "✅ Nội dung đạt kiểm duyệt."
       },
       "vi_tri": [
-        500,
-        40
+        582,
+        60
       ]
     },
     {
@@ -51,8 +51,8 @@
         "lenh": "Viết lại nội dung sau cho hết vi phạm, giữ ý chính.\nVi phạm: {{kiem_duyet.vi_pham}}\nNội dung gốc:\n{{input}}"
       },
       "vi_tri": [
-        500,
-        220
+        582,
+        240
       ]
     },
     {
@@ -65,8 +65,8 @@
         "noi_dung": "⚠️ Kiểm duyệt: {{kiem_duyet.ket_luan}}\n{{kiem_duyet.van_ban}}\n\nBản sửa đề xuất:\n{{sua}}"
       },
       "vi_tri": [
-        720,
-        220
+        842,
+        240
       ]
     }
   ],

@@ -45,6 +45,7 @@ CAI_DAT_MAC_DINH = {
     "kenh_duyet_chinh": "telegram",
     "kenh_bao_tin": ["zalo"],
     "giu_file_trung_gian_ngay": 30,
+    "gia_lap_cham_giay": 1.0,  # AI giả lập chờ 1 giây để anh thấy hiệu ứng chạy; 0 = chạy tức thì
 }
 
 
